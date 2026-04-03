@@ -12,15 +12,149 @@ from evolve.controller import EvolutionController
 from evolve.vector_store import VectorStore
 
 st.set_page_config(
-    page_title="Evolve - AI-Powered Evolutionary Code Improvement",
+    page_title="Evolve",
     page_icon="🧬",
     layout="wide",
+    initial_sidebar_state="expanded",
 )
 
-st.title("Evolve: AI-Powered Evolutionary Code Improvement")
-st.caption("CS5381 – Analysis of Algorithms | Evolutionary Agent for Algorithm Discovery")
+# ── Custom styling ──────────────────────────────────────────────────────────
+st.markdown("""
+<style>
+    /* overall background and font tweaks */
+    .stApp {
+        background: linear-gradient(175deg, #0f0f1a 0%, #1a1a2e 40%, #16213e 100%);
+    }
 
-# --- Default code templates ---
+    /* header area */
+    .hero-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 2rem 2.5rem;
+        border-radius: 16px;
+        margin-bottom: 1.5rem;
+        box-shadow: 0 8px 32px rgba(102, 126, 234, 0.25);
+    }
+    .hero-header h1 {
+        color: white;
+        font-size: 2.2rem;
+        margin: 0 0 0.3rem 0;
+        font-weight: 700;
+        letter-spacing: -0.5px;
+    }
+    .hero-header p {
+        color: rgba(255,255,255,0.85);
+        font-size: 1rem;
+        margin: 0;
+    }
+
+    /* stat cards */
+    .stat-card {
+        background: rgba(255,255,255,0.05);
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 12px;
+        padding: 1.2rem;
+        text-align: center;
+        backdrop-filter: blur(10px);
+    }
+    .stat-card .label {
+        color: rgba(255,255,255,0.6);
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        margin-bottom: 0.3rem;
+    }
+    .stat-card .value {
+        color: #667eea;
+        font-size: 1.8rem;
+        font-weight: 700;
+    }
+    .stat-card .value.green { color: #2ecc71; }
+    .stat-card .value.orange { color: #f39c12; }
+    .stat-card .value.red { color: #e74c3c; }
+
+    /* strategy badges */
+    .badge {
+        display: inline-block;
+        padding: 0.25rem 0.75rem;
+        border-radius: 20px;
+        font-size: 0.78rem;
+        font-weight: 600;
+        letter-spacing: 0.3px;
+    }
+    .badge-none { background: rgba(231,76,60,0.2); color: #e74c3c; }
+    .badge-random { background: rgba(243,156,18,0.2); color: #f39c12; }
+    .badge-llm { background: rgba(46,204,113,0.2); color: #2ecc71; }
+
+    /* welcome cards */
+    .feature-card {
+        background: rgba(255,255,255,0.04);
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 12px;
+        padding: 1.5rem;
+        height: 100%;
+        transition: border-color 0.3s ease;
+    }
+    .feature-card:hover {
+        border-color: rgba(102,126,234,0.4);
+    }
+    .feature-card h3 {
+        color: #667eea;
+        margin-top: 0;
+        font-size: 1.1rem;
+    }
+    .feature-card p {
+        color: rgba(255,255,255,0.7);
+        font-size: 0.9rem;
+        line-height: 1.5;
+    }
+
+    /* sidebar styling */
+    section[data-testid="stSidebar"] {
+        background: #12121f;
+        border-right: 1px solid rgba(255,255,255,0.06);
+    }
+    section[data-testid="stSidebar"] .stMarkdown h2 {
+        color: #667eea;
+        font-size: 1rem;
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+    }
+
+    /* plotly chart container */
+    .stPlotlyChart {
+        border-radius: 12px;
+        overflow: hidden;
+    }
+
+    /* nicer dividers */
+    hr {
+        border-color: rgba(255,255,255,0.08) !important;
+    }
+
+    /* results section */
+    .result-box {
+        background: rgba(46,204,113,0.08);
+        border: 1px solid rgba(46,204,113,0.25);
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin: 1rem 0;
+    }
+    .result-box h3 {
+        color: #2ecc71;
+        margin-top: 0;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# ── Header ──────────────────────────────────────────────────────────────────
+st.markdown("""
+<div class="hero-header">
+    <h1>Evolve</h1>
+    <p>Evolutionary code improvement powered by LLMs and retrieval-augmented generation</p>
+</div>
+""", unsafe_allow_html=True)
+
+# ── Default code templates ──────────────────────────────────────────────────
 DEFAULT_PACMAN_CODE = """legal = state.get_legal_actions()
 if 'Stop' in legal:
     legal.remove('Stop')
@@ -56,12 +190,12 @@ DEFAULT_DESCRIPTIONS = {
     "Matrix Multiplication (3x3)": "Optimize 3x3 matrix multiplication to minimize the number of arithmetic operations while maintaining correctness.",
 }
 
-# --- Sidebar: Input Panel ---
+# ── Sidebar ─────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.header("Configuration")
+    st.markdown("## Configuration")
 
     api_key = st.text_input("OpenAI API Key", type="password",
-                            help="Required for LLM-Guided Mutation strategy")
+                            help="Required only for LLM-Guided Mutation")
 
     problem_type_display = st.selectbox(
         "Problem Type",
@@ -78,13 +212,13 @@ with st.sidebar:
     initial_code = st.text_area(
         "Initial Code",
         value=DEFAULT_PACMAN_CODE if problem_type == "pacman" else DEFAULT_MATRIX_CODE,
-        height=250,
-        help="The starting code that will be evolved",
+        height=220,
+        help="Starting code to evolve",
     )
 
-    st.subheader("Evolution Parameters")
+    st.markdown("## Evolution Parameters")
 
-    num_generations = st.slider("Number of Generations", 1, 50, 10)
+    num_generations = st.slider("Generations", 1, 50, 10)
     population_size = st.slider("Population Size", 2, 20, 5)
     top_k = st.slider("Top-K Selection", 1, 10, 3)
 
@@ -99,11 +233,11 @@ with st.sidebar:
     }
     strategy = strategy_map[strategy_display]
 
-    st.subheader("Fitness Weights")
+    st.markdown("## Fitness Weights")
     if problem_type == "pacman":
-        st.caption("Fitness = w1 × avg_score + w2 × max_score")
+        st.caption("fitness = w1 * avg_score + w2 * max_score")
     else:
-        st.caption("Fitness = w1 × correctness + w2 × (1/(ops+1))")
+        st.caption("fitness = w1 * correctness + w2 * (1/(ops+1))")
 
     col1, col2, col3 = st.columns(3)
     w1 = col1.number_input("w1", 0.0, 1.0, 0.5, 0.05)
@@ -112,20 +246,22 @@ with st.sidebar:
 
     weights_valid = abs(w1 + w2 + w3 - 1.0) < 0.01
     if not weights_valid:
-        st.error(f"Weights must sum to 1.0 (current: {w1+w2+w3:.2f})")
+        st.error(f"Weights must sum to 1.0 (currently {w1+w2+w3:.2f})")
 
     api_key_needed = strategy == "llm_guided" and not api_key
     if api_key_needed:
         st.warning("API key required for LLM-Guided strategy")
 
     st.divider()
-    run_comparison = st.checkbox("Run 3-Strategy Comparison Experiment",
-                                 help="Runs all three strategies and produces a comparison chart")
+    run_comparison = st.checkbox("Run Comparison Experiment",
+                                 help="Run all three strategies and compare results")
 
     start_disabled = not weights_valid or api_key_needed
     start_button = st.button("Start Evolution", type="primary",
                              disabled=start_disabled, use_container_width=True)
 
+
+# ── Helper functions ────────────────────────────────────────────────────────
 
 def load_templates(problem_type: str) -> list[tuple[str, str]]:
     templates = []
@@ -137,23 +273,52 @@ def load_templates(problem_type: str) -> list[tuple[str, str]]:
     return templates
 
 
+CHART_LAYOUT = dict(
+    template="plotly_dark",
+    paper_bgcolor="rgba(0,0,0,0)",
+    plot_bgcolor="rgba(0,0,0,0)",
+    font=dict(color="rgba(255,255,255,0.8)", size=12),
+    xaxis=dict(
+        gridcolor="rgba(255,255,255,0.06)",
+        zerolinecolor="rgba(255,255,255,0.06)",
+    ),
+    yaxis=dict(
+        gridcolor="rgba(255,255,255,0.06)",
+        zerolinecolor="rgba(255,255,255,0.06)",
+    ),
+    legend=dict(
+        bgcolor="rgba(0,0,0,0)",
+        bordercolor="rgba(255,255,255,0.1)",
+    ),
+    margin=dict(l=50, r=30, t=50, b=40),
+)
+
+
 def build_fitness_chart(history: list[dict], title: str = "Fitness Progression") -> go.Figure:
     if not history:
         return go.Figure()
     df = pd.DataFrame(history)
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=df["generation"], y=df["best"],
-                             mode="lines+markers", name="Best", line=dict(color="#2ecc71", width=2)))
-    fig.add_trace(go.Scatter(x=df["generation"], y=df["avg"],
-                             mode="lines+markers", name="Average", line=dict(color="#3498db", width=2)))
+    fig.add_trace(go.Scatter(
+        x=df["generation"], y=df["best"],
+        mode="lines+markers", name="Best",
+        line=dict(color="#2ecc71", width=2.5),
+        marker=dict(size=7, symbol="circle"),
+    ))
+    fig.add_trace(go.Scatter(
+        x=df["generation"], y=df["avg"],
+        mode="lines+markers", name="Average",
+        line=dict(color="#667eea", width=2),
+        marker=dict(size=5),
+    ))
     if "worst" in df.columns:
-        fig.add_trace(go.Scatter(x=df["generation"], y=df["worst"],
-                                 mode="lines", name="Worst",
-                                 line=dict(color="#e74c3c", width=1, dash="dash")))
-    fig.update_layout(
-        title=title, xaxis_title="Generation", yaxis_title="Fitness Score",
-        template="plotly_white", height=400,
-    )
+        fig.add_trace(go.Scatter(
+            x=df["generation"], y=df["worst"],
+            mode="lines", name="Worst",
+            line=dict(color="#e74c3c", width=1.2, dash="dot"),
+        ))
+    fig.update_layout(title=title, xaxis_title="Generation", yaxis_title="Fitness",
+                      height=420, **CHART_LAYOUT)
     return fig
 
 
@@ -168,14 +333,25 @@ def build_comparison_chart(all_results: dict[str, list[dict]]) -> go.Figure:
         fig.add_trace(go.Scatter(
             x=df["generation"], y=df["best"],
             mode="lines+markers", name=names.get(strat, strat),
-            line=dict(color=colors.get(strat, "#999"), width=2),
+            line=dict(color=colors.get(strat, "#999"), width=2.5),
+            marker=dict(size=6),
         ))
     fig.update_layout(
-        title="Strategy Comparison: Best Fitness per Generation",
-        xaxis_title="Generation", yaxis_title="Best Fitness Score",
-        template="plotly_white", height=450,
+        title="Strategy Comparison -- Best Fitness per Generation",
+        xaxis_title="Generation", yaxis_title="Best Fitness",
+        height=480, **CHART_LAYOUT,
     )
     return fig
+
+
+def render_stat_card(label: str, value: str, color: str = ""):
+    color_class = f" {color}" if color else ""
+    st.markdown(f"""
+    <div class="stat-card">
+        <div class="label">{label}</div>
+        <div class="value{color_class}">{value}</div>
+    </div>
+    """, unsafe_allow_html=True)
 
 
 def run_single_evolution(config: RunConfig, vector_store: VectorStore,
@@ -190,12 +366,12 @@ def run_single_evolution(config: RunConfig, vector_store: VectorStore,
     all_candidates = []
     final_result = None
 
-    status_placeholder.info("Running...")
+    status_placeholder.info("Evolution in progress...")
 
     for gen_result in controller.run_evolution():
         final_result = gen_result
 
-        gen_counter.markdown(f"### Generation {gen_result.generation_num} / {config.num_generations}")
+        gen_counter.markdown(f"**Generation {gen_result.generation_num} / {config.num_generations}**")
         best_score.metric("Best Fitness", f"{gen_result.best_overall.fitness:.4f}",
                           delta=f"{gen_result.stats.get('max_fitness', 0) - gen_result.stats.get('avg_fitness', 0):.4f}")
 
@@ -229,14 +405,17 @@ def run_single_evolution(config: RunConfig, vector_store: VectorStore,
 
         all_candidates.extend(gen_result.candidates)
 
-    status_placeholder.success("Evolution Complete!")
+    status_placeholder.success("Complete!")
     return final_result, fitness_history, all_candidates, controller.log_entries
 
 
-# --- Main Content Area ---
+# ── Main content area ───────────────────────────────────────────────────────
+
 if start_button:
     if run_comparison:
-        st.header("3-Strategy Comparison Experiment")
+        # ── Comparison experiment ───────────────────────────────────────
+        st.markdown("### Comparison Experiment")
+        st.caption("Running all three mutation strategies back-to-back")
 
         strategies_to_run = ["none", "random", "llm_guided"]
         strategy_names = {"none": "No Evolution", "random": "Random Mutation", "llm_guided": "LLM-Guided"}
@@ -249,11 +428,15 @@ if start_button:
 
         for idx, strat in enumerate(strategies_to_run):
             if strat == "llm_guided" and not api_key:
-                comparison_status.warning("Skipping LLM-Guided (no API key)")
+                comparison_status.warning("Skipping LLM-Guided (no API key provided)")
                 continue
 
-            comparison_status.info(f"Running strategy {idx+1}/3: {strategy_names[strat]}...")
-            progress_bar.progress((idx) / 3)
+            badge_class = {"none": "badge-none", "random": "badge-random", "llm_guided": "badge-llm"}
+            comparison_status.markdown(
+                f'Running: <span class="badge {badge_class.get(strat, "")}">{strategy_names[strat]}</span> ({idx+1}/3)',
+                unsafe_allow_html=True,
+            )
+            progress_bar.progress(idx / 3)
 
             config = RunConfig(
                 problem_type=problem_type,
@@ -270,7 +453,7 @@ if start_button:
             vs = VectorStore(persist_dir=f"./data/chromadb_{strat}")
             vs.clear()
 
-            with st.expander(f"{strategy_names[strat]} - Details", expanded=False):
+            with st.expander(f"{strategy_names[strat]}", expanded=False):
                 chart_ph = st.empty()
                 status_ph = st.empty()
                 gen_ph = st.empty()
@@ -287,39 +470,56 @@ if start_button:
                 all_best_codes[strat] = result.best_overall.code
 
         progress_bar.progress(1.0)
-        comparison_status.success("Comparison complete!")
+        comparison_status.success("All strategies complete!")
 
-        st.subheader("Comparison Chart")
+        st.markdown("---")
+        st.markdown("### Results")
         comp_fig = build_comparison_chart(all_histories)
         st.plotly_chart(comp_fig, use_container_width=True)
 
+        # summary cards
+        summary_cols = st.columns(len(all_histories))
+        for col, (strat, hist) in zip(summary_cols, all_histories.items()):
+            if hist:
+                best_val = max(h["best"] for h in hist)
+                with col:
+                    render_stat_card(
+                        strategy_names.get(strat, strat),
+                        f"{best_val:.4f}",
+                        "green" if strat == "llm_guided" else ("orange" if strat == "random" else "red"),
+                    )
+
+        st.markdown("")
         col1, col2 = st.columns(2)
         comp_df = pd.DataFrame([
-            {"generation": h["generation"], "strategy": strategy_names.get(s, s), "best_fitness": h["best"], "avg_fitness": h["avg"]}
+            {"generation": h["generation"], "strategy": strategy_names.get(s, s),
+             "best_fitness": h["best"], "avg_fitness": h["avg"]}
             for s, hist in all_histories.items() for h in hist
         ])
         col1.download_button(
-            "Download Comparison CSV",
+            "Download CSV",
             comp_df.to_csv(index=False),
             "comparison_results.csv",
             "text/csv",
+            use_container_width=True,
         )
 
         try:
-            png_bytes = comp_fig.to_image(format="png", width=1200, height=600)
-            col2.download_button("Download Comparison PNG", png_bytes,
-                                 "comparison_chart.png", "image/png")
+            png_bytes = comp_fig.to_image(format="png", width=1400, height=700)
+            col2.download_button("Download Chart", png_bytes,
+                                 "comparison_chart.png", "image/png",
+                                 use_container_width=True)
         except Exception:
-            col2.info("Install kaleido for PNG export: pip install kaleido")
+            col2.info("Install kaleido for PNG export: `pip install kaleido`")
 
         if all_best_codes:
-            st.subheader("Best Solutions per Strategy")
+            st.markdown("### Best solutions per strategy")
             for strat, code in all_best_codes.items():
-                with st.expander(f"Best from {strategy_names.get(strat, strat)}"):
+                with st.expander(f"{strategy_names.get(strat, strat)}"):
                     st.code(code, language="python")
 
     else:
-        # --- Single Strategy Run ---
+        # ── Single strategy run ─────────────────────────────────────────
         config = RunConfig(
             problem_type=problem_type,
             problem_description=problem_desc,
@@ -332,10 +532,11 @@ if start_button:
             openai_api_key=api_key,
         )
 
-        col_status, col_gen, col_best = st.columns(3)
-        status_placeholder = col_status.empty()
-        gen_counter = col_gen.empty()
-        best_score = col_best.empty()
+        # status row
+        c1, c2, c3 = st.columns(3)
+        status_placeholder = c1.empty()
+        gen_counter = c2.empty()
+        best_score = c3.empty()
 
         chart_placeholder = st.empty()
 
@@ -351,12 +552,22 @@ if start_button:
         )
 
         if result:
-            st.divider()
-            st.subheader("Best Solution Found")
-            st.metric("Final Best Fitness", f"{result.best_overall.fitness:.4f}")
+            st.markdown("---")
+
+            # result summary
+            r1, r2, r3 = st.columns(3)
+            with r1:
+                render_stat_card("Best Fitness", f"{result.best_overall.fitness:.4f}", "green")
+            with r2:
+                render_stat_card("Generations", str(len(history)), "")
+            with r3:
+                render_stat_card("Candidates Tested", str(len(candidates)), "orange")
+
+            st.markdown("")
+            st.markdown("**Best solution found:**")
             st.code(result.best_overall.code, language="python")
 
-            st.divider()
+            st.markdown("")
             col1, col2 = st.columns(2)
 
             results_df = pd.DataFrame([{
@@ -369,37 +580,70 @@ if start_button:
             } for c in candidates])
 
             col1.download_button(
-                "Download Results CSV",
+                "Download CSV",
                 results_df.to_csv(index=False),
                 "evolution_results.csv",
                 "text/csv",
+                use_container_width=True,
             )
 
             try:
                 fig = build_fitness_chart(history)
-                png_bytes = fig.to_image(format="png", width=1200, height=600)
-                col2.download_button("Download Chart PNG", png_bytes,
-                                     "fitness_chart.png", "image/png")
+                png_bytes = fig.to_image(format="png", width=1400, height=700)
+                col2.download_button("Download Chart", png_bytes,
+                                     "fitness_chart.png", "image/png",
+                                     use_container_width=True)
             except Exception:
-                col2.info("Install kaleido for PNG export: pip install kaleido")
+                col2.info("Install kaleido for PNG export: `pip install kaleido`")
 
 else:
-    # --- Welcome screen ---
-    st.markdown("""
-    ### How It Works
-    1. **Configure** your evolution parameters in the sidebar
-    2. **Choose** a mutation strategy:
-       - **No Evolution**: Single LLM call baseline (control)
-       - **Random Mutation**: Programmatic code mutations (no LLM)
-       - **LLM-Guided Mutation**: GPT-4o-mini with retrieval-augmented prompting
-    3. **Start** the evolution and watch fitness improve in real-time
-    4. **Compare** all three strategies with the comparison experiment mode
-    5. **Export** results as CSV and charts as PNG for your report
+    # ── Welcome screen ──────────────────────────────────────────────────
+    st.markdown("")
 
-    ### Supported Problems
-    - **Pac-Man Agent**: Evolve a game-playing agent for the UC Berkeley CS188 framework
-    - **Matrix Multiplication**: Optimize 3x3 matrix multiplication to minimize operations
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.markdown("""
+        <div class="feature-card">
+            <h3>Evolutionary Search</h3>
+            <p>Generate candidate solutions through mutation, evaluate them with a fitness function, and let natural selection do its thing over multiple generations.</p>
+        </div>
+        """, unsafe_allow_html=True)
+    with c2:
+        st.markdown("""
+        <div class="feature-card">
+            <h3>LLM-Guided Mutations</h3>
+            <p>Instead of random changes, GPT-4o-mini reads the code, understands it, and suggests targeted improvements. Combined with RAG for even better results.</p>
+        </div>
+        """, unsafe_allow_html=True)
+    with c3:
+        st.markdown("""
+        <div class="feature-card">
+            <h3>Compare Strategies</h3>
+            <p>Run all three mutation strategies side by side and see which one wins. Export charts and data for your analysis.</p>
+        </div>
+        """, unsafe_allow_html=True)
 
-    ---
-    *Configure parameters in the sidebar and click "Start Evolution" to begin.*
-    """)
+    st.markdown("")
+    st.markdown("")
+
+    col_left, col_right = st.columns(2)
+
+    with col_left:
+        st.markdown("""
+        <div class="feature-card">
+            <h3>Pac-Man Agent</h3>
+            <p>Evolve a game-playing agent for the UC Berkeley CS188 framework. Start with a simple greedy agent and watch it improve over generations.</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col_right:
+        st.markdown("""
+        <div class="feature-card">
+            <h3>Matrix Multiplication</h3>
+            <p>Optimize 3x3 matrix multiplication to use fewer arithmetic operations. The standard approach uses 27 multiplications -- can evolution do better?</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown("")
+    st.markdown("")
+    st.caption("Configure parameters in the sidebar and click Start Evolution to begin.")

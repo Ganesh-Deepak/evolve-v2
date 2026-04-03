@@ -1,175 +1,119 @@
-# Evolve: AI-Powered Evolutionary Code Improvement System
+# Evolve -- Evolutionary Code Improvement Using LLMs
 
-**CS5381 -- Analysis of Algorithms | Group Project -- Spring 2026**
+**CS5381 - Analysis of Algorithms | Term Project | Spring 2026**
 
-Evolve is a web-based system that uses evolutionary algorithms combined with Large Language Models (LLMs) to automatically improve code. Given a starting piece of code (like a Pac-Man game-playing agent), the system generates mutated versions, tests them, keeps the best ones, and repeats -- gradually discovering better-performing solutions.
+## What is this?
 
----
+This project explores whether we can use evolutionary algorithms to automatically improve code. The idea is pretty straightforward -- take a piece of code (say, a simple Pac-Man agent), create a bunch of slightly modified versions of it, test which ones work best, keep those, and repeat. After enough rounds, the code should get noticeably better.
 
-## Quick Start
+We went a step further and added an LLM (GPT-4o-mini) into the mutation step. Instead of just randomly changing numbers and swapping lines, the LLM actually reads the code and tries to make smart improvements. We also hooked up a vector database (ChromaDB) so the LLM gets to see examples of what worked well in previous runs -- this is basically RAG (Retrieval-Augmented Generation) applied to code evolution.
 
-### Prerequisites
+The whole thing runs through a Streamlit web app where you can configure parameters, watch evolution happen in real time, and compare how different mutation strategies stack up.
 
-- **Python 3.10+** installed on your system
-- **Git** (to clone the repository)
-- **OpenAI API Key** (only needed for LLM-Guided Mutation strategy; get one at https://platform.openai.com/api-keys)
+## Two problems we tested on
 
-### Setup (One-Time)
+- **Pac-Man Agent** -- evolving an agent that plays Pac-Man using the UC Berkeley CS188 framework. The agent decides which direction to move each turn based on food positions, ghost locations, etc.
+- **3x3 Matrix Multiplication** -- trying to find algorithms that multiply matrices using fewer arithmetic operations than the standard approach (which needs 27 multiplications).
+
+## Getting started
+
+**You need:** Python 3.10+, pip, and optionally an OpenAI API key (only for the LLM-guided strategy).
 
 ```bash
-# 1. Clone the repository
-git clone <repo-url>
-cd evolve
-
-# 2. Create a virtual environment
+# clone and set up
+git clone https://github.com/Ganesh-Deepak/evolve-v2.git
+cd evolve-v2
 python -m venv venv
 
-# 3. Activate the virtual environment
-# On Windows:
+# activate virtual environment
+# Windows:
 .\venv\Scripts\activate
-# On Mac/Linux:
+# Mac/Linux:
 source venv/bin/activate
 
-# 4. Install dependencies
+# install everything
 pip install -r requirements.txt
 ```
 
-### Running the App
-
+Then just run:
 ```bash
-# Make sure your virtual environment is activated, then:
 streamlit run app.py
 ```
 
-This opens the web interface in your browser (usually at http://localhost:8501).
+The app opens at http://localhost:8501. Configure your experiment in the sidebar and hit "Start Evolution."
 
----
+> If you want to use LLM-Guided Mutation, you'll need an OpenAI API key. You can get one at https://platform.openai.com/api-keys. The cost is minimal -- a typical run uses about $0.01-0.05 worth of API calls with GPT-4o-mini.
 
-## How to Use
+## How it works (short version)
 
-### Step 1: Configure in the Sidebar
+1. Start with some initial code (a basic Pac-Man agent or a naive matrix multiply)
+2. Generate mutations -- either random code changes or LLM-suggested improvements
+3. Run each candidate through a fitness function (play Pac-Man games or check matrix correctness + operation count)
+4. Keep the top-K performers, throw away the rest
+5. Repeat for N generations
+6. The best solution found across all generations is your output
 
-| Setting | What It Does | Recommended Value |
-|---------|-------------|-------------------|
-| **OpenAI API Key** | Your key for GPT-4o-mini (only needed for LLM-Guided strategy) | Your key |
-| **Problem Type** | Choose Pac-Man Agent or Matrix Multiplication | Start with Matrix Multiplication (faster) |
-| **Initial Code** | The starting code that will be evolved | Use the default provided |
-| **Number of Generations** | How many rounds of evolution to run | 10 |
-| **Population Size** | How many candidate solutions per generation | 5 |
-| **Top-K Selection** | How many best candidates survive each generation | 3 |
-| **Mutation Strategy** | How new candidates are created (see below) | Random Mutation to start |
-| **Fitness Weights** | How important each scoring metric is (must sum to 1.0) | Use defaults (0.5, 0.3, 0.2) |
+There are three mutation strategies you can compare:
+- **No Evolution** -- just evaluates the original code (baseline/control)
+- **Random Mutation** -- programmatic tweaks like changing numbers, swapping operators, rearranging lines
+- **LLM-Guided** -- GPT-4o-mini analyzes the code and suggests targeted improvements, with RAG pulling in examples from a vector DB
 
-### Step 2: Choose a Mutation Strategy
+The app has a comparison mode that runs all three back-to-back and plots the results on one chart.
 
-- **No Evolution (Baseline)**: No changes are made. This is your control/reference point.
-- **Random Mutation**: The system automatically tweaks numbers, swaps code lines, and changes operators. No API key needed.
-- **LLM-Guided Mutation**: GPT-4o-mini analyzes the code and makes intelligent improvements. Requires an OpenAI API key.
-
-### Step 3: Click "Start Evolution"
-
-Watch in real-time as:
-- The **generation counter** ticks up
-- The **fitness chart** shows improvement over generations
-- The **operation log** explains what mutations happened and why
-- The **generation details table** shows all candidates and their scores
-
-### Step 4: Review Results
-
-After evolution completes:
-- The **best solution** is displayed as a code block
-- **Download CSV** to get raw data for your report
-- **Download PNG** to get the fitness chart for your presentation
-
-### Step 5 (Optional): Run Comparison Experiment
-
-Check the **"Run 3-Strategy Comparison Experiment"** checkbox before starting. This runs all three strategies back-to-back and produces a comparison chart showing which strategy performed best -- exactly what you need for the assignment report.
-
----
-
-## Supported Problems
-
-### Pac-Man Agent
-Evolves a game-playing agent for the UC Berkeley CS188 Pac-Man framework. The agent decides which direction Pac-Man should move each turn. Fitness is based on game score and survival.
-
-### Matrix Multiplication (3x3) -- Bonus
-Evolves a function that multiplies two 3x3 matrices, trying to minimize the number of arithmetic operations while maintaining correctness.
-
----
-
-## Project Structure
+## Project layout
 
 ```
-evolve/
-├── app.py                          # Web UI (Streamlit)
-├── requirements.txt                # Python dependencies
-├── .env.example                    # API key template
-├── .gitignore
-│
-├── evolve/                         # Core engine
-│   ├── models.py                   # Data structures
-│   ├── controller.py               # Evolution loop orchestrator
-│   ├── candidate_generator.py      # 3 mutation strategies
-│   ├── evaluator.py                # Fitness scoring
-│   ├── selector.py                 # Selection with elitism
-│   ├── llm_client.py               # OpenAI API wrapper
-│   ├── vector_store.py             # ChromaDB vector database
-│   └── prompts.py                  # LLM prompt templates
-│
-├── pacman/                         # UC Berkeley CS188 Pac-Man framework
-│   ├── pacman.py                   # Main game engine
-│   ├── game.py                     # Game logic and Agent class
-│   └── layouts/                    # Game maps
-│
-├── templates/                      # Starter code templates
-│   ├── pacman_greedy.py            # Greedy food-chasing agent
-│   ├── pacman_scared.py            # Ghost-avoiding agent
-│   ├── pacman_random.py            # Random action agent
-│   ├── matrix_naive.py             # Standard triple-loop multiply
-│   └── matrix_optimized.py         # Unrolled multiply
-│
-└── data/                           # Generated at runtime
-    ├── chromadb/                   # Vector database storage
-    ├── generations/                # JSON logs per run
-    └── plots/                      # Exported charts
+evolve-v2/
+|-- app.py                      # Streamlit web interface
+|-- requirements.txt            # dependencies
+|
+|-- evolve/                     # core evolution engine
+|   |-- models.py               # data classes (RunConfig, Candidate, etc.)
+|   |-- controller.py           # main evolution loop
+|   |-- candidate_generator.py  # mutation strategies (none, random, LLM)
+|   |-- evaluator.py            # fitness functions for both problems
+|   |-- selector.py             # top-k selection with elitism
+|   |-- llm_client.py           # OpenAI API wrapper
+|   |-- vector_store.py         # ChromaDB for RAG and caching
+|   |-- prompts.py              # prompt templates for the LLM
+|
+|-- pacman/                     # UC Berkeley CS188 Pac-Man framework
+|   |-- pacman.py, game.py      # game engine
+|   |-- layouts/                # game maps
+|
+|-- templates/                  # starter code templates
+|   |-- pacman_greedy.py        # greedy food-chaser
+|   |-- pacman_scared.py        # ghost-avoider
+|   |-- matrix_naive.py         # standard triple loop
+|   |-- matrix_optimized.py     # partially unrolled
+|
+|-- docs/
+|   |-- TECHNICAL_DOCUMENTATION.md
+|   |-- HOW_TO_USE.md
+|
+|-- data/                       # created at runtime
+    |-- chromadb/               # vector database storage
 ```
 
----
+## Tech stack
 
-## Technology Stack
-
-| Component | Technology | Purpose |
-|-----------|-----------|---------|
-| Backend | Python 3.10+ with FastAPI patterns | Core evolution engine |
-| Frontend | Streamlit | Web-based UI (mandatory, not CLI) |
-| LLM | OpenAI GPT-4o-mini | Intelligent code mutations |
-| Vector DB | ChromaDB | Cache candidates, enable retrieval-augmented evolution |
-| Embeddings | sentence-transformers (all-MiniLM-L6-v2) | Code similarity detection |
-| Charts | Plotly | Interactive fitness progression charts |
-| Pac-Man | UC Berkeley CS188 framework | Game engine for agent evaluation |
-
----
-
-## For Team Members: Generating Your Individual Data
-
-Each team member must produce their own data files. Here's how:
-
-1. Open the app and configure a **unique parameter set** (e.g., different weights, generation count, or population size)
-2. Run evolution with your parameters
-3. Click **"Download Results CSV"** -- save as `yourname_data.csv`
-4. Click **"Download Chart PNG"** -- include in your `yourname_data.docx` report
-5. Take screenshots of the UI showing your configuration and results
-6. Write a brief analysis of what you observed
-
----
+| What | Why |
+|------|-----|
+| Python 3.10+ | main language |
+| Streamlit | web UI (required by assignment spec) |
+| OpenAI GPT-4o-mini | LLM for intelligent mutations |
+| ChromaDB + sentence-transformers | vector DB for storing/retrieving candidates |
+| Plotly | interactive charts |
+| UC Berkeley CS188 | Pac-Man game engine |
 
 ## Troubleshooting
 
-| Problem | Solution |
-|---------|----------|
-| "Weights must sum to 1.0" | Adjust w1, w2, w3 so they add up to exactly 1.00 |
-| "API key required" | Enter your OpenAI API key, or switch to Random Mutation (no key needed) |
-| Pac-Man fitness is 0.0 | The generated code likely has a bug. Check the operation log for error details |
-| App won't start | Make sure you activated the virtual environment first |
-| ChromaDB errors | Delete the `data/chromadb/` folder and restart |
-| Import errors | Run `pip install -r requirements.txt` again |
+- **"Weights must sum to 1.0"** -- the three fitness weight sliders need to add up to exactly 1.00
+- **Pac-Man fitness stuck at 0** -- the mutated code probably has a syntax error or references a method that doesn't exist. Check the operation log
+- **LLM-Guided not working** -- make sure you entered a valid OpenAI API key
+- **First run is slow** -- it downloads the sentence-transformers embedding model (~80 MB) on the first run
+- **ChromaDB errors** -- delete the `data/chromadb/` folder and restart
+
+## Further reading
+
+See `docs/TECHNICAL_DOCUMENTATION.md` for a deep dive into how each module works, and `docs/HOW_TO_USE.md` for a step-by-step walkthrough of using the app.
