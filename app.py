@@ -224,10 +224,10 @@ with st.sidebar:
 
     strategy_display = st.selectbox(
         "Mutation Strategy",
-        ["No Evolution (Baseline)", "Random Mutation", "LLM-Guided Mutation"]
+        ["No Evolution (Single-Shot LLM)", "Random Mutation", "LLM-Guided Mutation"]
     )
     strategy_map = {
-        "No Evolution (Baseline)": "none",
+        "No Evolution (Single-Shot LLM)": "none",
         "Random Mutation": "random",
         "LLM-Guided Mutation": "llm_guided",
     }
@@ -235,7 +235,7 @@ with st.sidebar:
 
     st.markdown("## Fitness Weights")
     if problem_type == "pacman":
-        st.caption("fitness = w1 * avg_score + w2 * max_score")
+        st.caption("fitness = w1 * avg_score + w2 * max_score + w3 * survival")
     else:
         st.caption("fitness = w1 * correctness + w2 * (1/(ops+1))")
 
@@ -418,7 +418,7 @@ if start_button:
         st.caption("Running all three mutation strategies back-to-back")
 
         strategies_to_run = ["none", "random", "llm_guided"]
-        strategy_names = {"none": "No Evolution", "random": "Random Mutation", "llm_guided": "LLM-Guided"}
+        strategy_names = {"none": "No Evolution (Single-Shot LLM)", "random": "Random Mutation", "llm_guided": "LLM-Guided"}
 
         all_histories = {}
         all_best_codes = {}

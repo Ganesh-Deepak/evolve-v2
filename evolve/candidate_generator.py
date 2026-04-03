@@ -21,12 +21,50 @@ class BaseMutator(ABC):
 
 
 class NoEvolutionMutator(BaseMutator):
+    """Single-shot LLM baseline: one LLM call with no evolutionary loop.
+    If no LLM client is available, returns the original code unchanged."""
+
+    def __init__(self, llm_client: LLMClient | None = None):
+        self.llm_client = llm_client
+        self._has_called = False
+
     def generate(self, parents: list[Candidate], generation: int,
                  config: RunConfig, performance_history: list[dict]) -> list[Candidate]:
+        parent = parents[0]
+
+        # Single-shot: only call LLM once (first generation), then return unchanged
+        if self.llm_client and not self._has_called:
+            self._has_called = True
+            system_prompt = (SYSTEM_PROMPT_PACMAN if config.problem_type == "pacman"
+                             else SYSTEM_PROMPT_MATRIX)
+            user_prompt = (
+                f"Improve the following code. Return only the improved code.\n\n"
+                f"```python\n{parent.code}\n```"
+            )
+            try:
+                new_code = self.llm_client.generate_code(
+                    system_prompt, user_prompt, temperature=0.7
+                )
+                return [Candidate(
+                    code=new_code,
+                    generation=generation,
+                    parent_hash=parent.code_hash,
+                    mutation_type="single_shot_llm",
+                    mutation_description="Single-shot LLM improvement (no evolution)",
+                )]
+            except Exception as e:
+                return [Candidate(
+                    code=parent.code,
+                    generation=generation,
+                    parent_hash=parent.code_hash,
+                    mutation_type="none",
+                    mutation_description=f"Single-shot LLM failed ({e}), code unchanged",
+                )]
+
         return [Candidate(
-            code=parents[0].code,
+            code=parent.code,
             generation=generation,
-            parent_hash=parents[0].code_hash,
+            parent_hash=parent.code_hash,
             mutation_type="none",
             mutation_description="No evolution - baseline (code unchanged)",
         )]
@@ -159,7 +197,7 @@ class LLMGuidedMutator(BaseMutator):
                          else SYSTEM_PROMPT_MATRIX)
 
         if config.problem_type == "pacman":
-            fitness_desc = f"{config.fitness_weights[0]}*game_score + {config.fitness_weights[1]}*max_score"
+            fitness_desc = f"{config.fitness_weights[0]}*avg_score + {config.fitness_weights[1]}*max_score + {config.fitness_weights[2]}*survival"
         else:
             fitness_desc = (f"{config.fitness_weights[0]}*correctness + "
                            f"{config.fitness_weights[1]}*(1/(num_operations+1))")
@@ -207,7 +245,7 @@ class LLMGuidedMutator(BaseMutator):
 def get_mutator(strategy: str, llm_client: LLMClient | None = None,
                 vector_store: VectorStore | None = None) -> BaseMutator:
     if strategy == "none":
-        return NoEvolutionMutator()
+        return NoEvolutionMutator(llm_client=llm_client)
     elif strategy == "random":
         return RandomMutator()
     elif strategy == "llm_guided":

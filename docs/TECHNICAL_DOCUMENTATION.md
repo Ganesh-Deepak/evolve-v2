@@ -66,8 +66,10 @@ A fitness function takes a candidate and returns a number. Higher is better.
 
 For Pac-Man:
 ```
-fitness = w1 * average_game_score + w2 * max_game_score
+fitness = w1 * avg_score + w2 * max_score + w3 * survival_metric
 ```
+
+The survival metric rewards games where Pac-Man achieves a positive score (i.e., wins). This uses all three configurable weights per the assignment spec.
 
 For matrix multiplication:
 ```
@@ -78,7 +80,7 @@ The weights (w1, w2, w3) are configurable through the UI, so you can experiment 
 
 ### The three mutation strategies
 
-**No Evolution:** Does nothing. Returns the original code unchanged every generation. This is the control group -- if evolution works, the other strategies should beat this flat line.
+**No Evolution (Single-Shot LLM):** Makes a single LLM call to improve the code in the first generation, then returns unchanged code for subsequent generations. When no API key is available, it just returns the original code as-is. This is the control group -- it shows what a one-off LLM improvement looks like without iterative evolution. If evolution works, the other strategies should outperform this baseline over multiple generations.
 
 **Random Mutation:** Makes random programmatic changes to the source code. The five operators are:
 - Parameter perturbation -- finds numeric constants and tweaks them by up to 30%

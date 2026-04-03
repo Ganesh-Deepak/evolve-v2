@@ -15,7 +15,7 @@ class EvolutionController:
         self.vector_store = vector_store or VectorStore()
         self.llm_client = (
             LLMClient(config.openai_api_key)
-            if config.mutation_strategy == "llm_guided" and config.openai_api_key
+            if config.mutation_strategy in ("llm_guided", "none") and config.openai_api_key
             else None
         )
         self.mutator = get_mutator(
