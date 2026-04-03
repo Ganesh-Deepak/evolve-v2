@@ -10,6 +10,7 @@ from pathlib import Path
 from evolve.models import RunConfig, Candidate
 from evolve.controller import EvolutionController
 from evolve.vector_store import VectorStore
+from evolve.llm_client import LLMClient
 
 st.set_page_config(
     page_title="Evolve",
@@ -209,12 +210,30 @@ with st.sidebar:
         height=80,
     )
 
-    initial_code = st.text_area(
-        "Initial Code",
-        value=DEFAULT_PACMAN_CODE if problem_type == "pacman" else DEFAULT_MATRIX_CODE,
-        height=220,
-        help="Starting code to evolve",
+    input_type = st.selectbox(
+        "Input Type",
+        ["Python Code", "Pseudocode / Description"],
+        help="You can provide Python code directly, or describe the algorithm in pseudocode or plain text. "
+             "If you choose Pseudocode/Description, the LLM will convert it to Python before evolution starts.",
     )
+
+    if input_type == "Python Code":
+        initial_code = st.text_area(
+            "Initial Code",
+            value=DEFAULT_PACMAN_CODE if problem_type == "pacman" else DEFAULT_MATRIX_CODE,
+            height=220,
+            help="Starting Python code to evolve",
+        )
+    else:
+        pseudocode_input = st.text_area(
+            "Pseudocode / Algorithm Description",
+            value="A greedy agent that always moves toward the nearest food pellet, avoiding ghosts when they are close."
+                  if problem_type == "pacman" else
+                  "Multiply two 3x3 matrices using the standard triple-loop approach.",
+            height=220,
+            help="Describe the algorithm in pseudocode or plain English. The LLM will generate Python code from this.",
+        )
+        initial_code = None  # will be generated before evolution starts
 
     st.markdown("## Evolution Parameters")
 
@@ -344,6 +363,37 @@ def build_comparison_chart(all_results: dict[str, list[dict]]) -> go.Figure:
     return fig
 
 
+def build_runtime_chart(history: list[dict], title: str = "Runtime per Generation") -> go.Figure:
+    if not history:
+        return go.Figure()
+    df = pd.DataFrame(history)
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=df["generation"], y=df["gen_time"],
+        name="Generation Time (s)",
+        marker_color="#667eea",
+        opacity=0.7,
+    ))
+    if "best_eval_time" in df.columns:
+        fig.add_trace(go.Scatter(
+            x=df["generation"], y=df["best_eval_time"],
+            mode="lines+markers", name="Best Candidate Eval (ms)",
+            line=dict(color="#2ecc71", width=2.5),
+            marker=dict(size=6),
+            yaxis="y2",
+        ))
+    fig.update_layout(
+        title=title,
+        xaxis_title="Generation",
+        yaxis=dict(title="Generation Time (s)", side="left"),
+        yaxis2=dict(title="Eval Time (ms)", side="right", overlaying="y",
+                    gridcolor="rgba(255,255,255,0.03)"),
+        height=380,
+        **CHART_LAYOUT,
+    )
+    return fig
+
+
 def render_stat_card(label: str, value: str, color: str = ""):
     color_class = f" {color}" if color else ""
     st.markdown(f"""
@@ -356,13 +406,15 @@ def render_stat_card(label: str, value: str, color: str = ""):
 
 def run_single_evolution(config: RunConfig, vector_store: VectorStore,
                          chart_placeholder, status_placeholder,
-                         gen_counter, best_score, log_container, details_container):
+                         gen_counter, best_score, log_container, details_container,
+                         runtime_chart_placeholder=None):
     controller = EvolutionController(config, vector_store)
 
     templates = load_templates(config.problem_type)
     vector_store.seed_templates(templates)
 
     fitness_history = []
+    runtime_history = []
     all_candidates = []
     final_result = None
 
@@ -382,10 +434,24 @@ def run_single_evolution(config: RunConfig, vector_store: VectorStore,
             "worst": gen_result.stats["min_fitness"],
         })
 
+        runtime_history.append({
+            "generation": gen_result.generation_num,
+            "gen_time": gen_result.stats.get("gen_time_sec", 0),
+            "best_eval_time": gen_result.stats.get("best_eval_time_ms", 0),
+            "best_exec_time": gen_result.stats.get("best_exec_time_ms", 0),
+            "avg_eval_time": gen_result.stats.get("avg_eval_time_ms", 0),
+        })
+
         chart_placeholder.plotly_chart(
             build_fitness_chart(fitness_history),
             use_container_width=True,
         )
+
+        if runtime_chart_placeholder:
+            runtime_chart_placeholder.plotly_chart(
+                build_runtime_chart(runtime_history),
+                use_container_width=True,
+            )
 
         with log_container:
             for entry in gen_result.log_entries:
@@ -394,11 +460,13 @@ def run_single_evolution(config: RunConfig, vector_store: VectorStore,
         with details_container:
             rows = []
             for c in gen_result.candidates:
+                eval_ms = c.fitness_breakdown.get("eval_time_ms", "")
                 rows.append({
                     "Hash": c.code_hash[:8],
                     "Mutation": c.mutation_type,
                     "Fitness": f"{c.fitness:.4f}" if c.fitness is not None else "N/A",
-                    "Description": c.mutation_description[:80],
+                    "Eval (ms)": f"{eval_ms:.1f}" if isinstance(eval_ms, (int, float)) else "",
+                    "Description": c.mutation_description[:70],
                     "Selected": "Yes" if c in gen_result.selected else "",
                 })
             st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
@@ -406,12 +474,44 @@ def run_single_evolution(config: RunConfig, vector_store: VectorStore,
         all_candidates.extend(gen_result.candidates)
 
     status_placeholder.success("Complete!")
-    return final_result, fitness_history, all_candidates, controller.log_entries
+    return final_result, fitness_history, runtime_history, all_candidates, controller.log_entries
+
+
+# ── Pseudocode-to-Python conversion helper ──────────────────────────────────
+
+def convert_pseudocode_to_python(description: str, problem_type: str, api_key: str) -> str:
+    """Use the LLM to convert pseudocode/description into Python code."""
+    client = LLMClient(api_key)
+    if problem_type == "pacman":
+        system = (
+            "You are a Python programmer. Convert the following algorithm description "
+            "into Python code for a Pac-Man agent's get_action method body. "
+            "Available: state.get_legal_actions(), state.get_pacman_position(), "
+            "state.get_food().as_list(), state.get_ghost_positions(), "
+            "state.generate_pacman_successor(action). Return ONLY the function body code."
+        )
+    else:
+        system = (
+            "You are a Python programmer. Convert the following algorithm description "
+            "into Python code for a matrix_multiply(A, B) function body that multiplies "
+            "two 3x3 matrices (lists of lists). Return ONLY the function body code."
+        )
+    return client.generate_code(system, f"Algorithm description:\n{description}")
 
 
 # ── Main content area ───────────────────────────────────────────────────────
 
 if start_button:
+    # Handle pseudocode conversion if needed
+    if input_type == "Pseudocode / Description" and initial_code is None:
+        if not api_key:
+            st.error("An API key is required to convert pseudocode/description to Python code.")
+            st.stop()
+        with st.spinner("Converting your description to Python code..."):
+            initial_code = convert_pseudocode_to_python(pseudocode_input, problem_type, api_key)
+        st.info("Generated initial Python code from your description:")
+        st.code(initial_code, language="python")
+
     if run_comparison:
         # ── Comparison experiment ───────────────────────────────────────
         st.markdown("### Comparison Experiment")
@@ -421,6 +521,7 @@ if start_button:
         strategy_names = {"none": "No Evolution (Single-Shot LLM)", "random": "Random Mutation", "llm_guided": "LLM-Guided"}
 
         all_histories = {}
+        all_runtime_histories = {}
         all_best_codes = {}
 
         progress_bar = st.progress(0)
@@ -455,17 +556,19 @@ if start_button:
 
             with st.expander(f"{strategy_names[strat]}", expanded=False):
                 chart_ph = st.empty()
+                runtime_ph = st.empty()
                 status_ph = st.empty()
                 gen_ph = st.empty()
                 best_ph = st.empty()
                 log_ph = st.container()
                 det_ph = st.container()
 
-                result, history, candidates, logs = run_single_evolution(
-                    config, vs, chart_ph, status_ph, gen_ph, best_ph, log_ph, det_ph
+                result, history, runtime_hist, candidates, logs = run_single_evolution(
+                    config, vs, chart_ph, status_ph, gen_ph, best_ph, log_ph, det_ph, runtime_ph
                 )
 
             all_histories[strat] = history
+            all_runtime_histories[strat] = runtime_hist
             if result:
                 all_best_codes[strat] = result.best_overall.code
 
@@ -489,13 +592,46 @@ if start_button:
                         "green" if strat == "llm_guided" else ("orange" if strat == "random" else "red"),
                     )
 
+        # Runtime comparison chart
+        st.markdown("### Runtime per Generation")
+        rt_fig = go.Figure()
+        rt_colors = {"none": "#e74c3c", "random": "#f39c12", "llm_guided": "#2ecc71"}
+        for strat, rt_hist in all_runtime_histories.items():
+            if rt_hist:
+                rt_df = pd.DataFrame(rt_hist)
+                rt_fig.add_trace(go.Scatter(
+                    x=rt_df["generation"], y=rt_df["gen_time"],
+                    mode="lines+markers", name=strategy_names.get(strat, strat),
+                    line=dict(color=rt_colors.get(strat, "#999"), width=2.5),
+                    marker=dict(size=6),
+                ))
+        rt_fig.update_layout(
+            title="Runtime Comparison -- Generation Time (seconds)",
+            xaxis_title="Generation", yaxis_title="Time (s)",
+            height=400, **CHART_LAYOUT,
+        )
+        st.plotly_chart(rt_fig, use_container_width=True)
+
         st.markdown("")
         col1, col2 = st.columns(2)
-        comp_df = pd.DataFrame([
-            {"generation": h["generation"], "strategy": strategy_names.get(s, s),
-             "best_fitness": h["best"], "avg_fitness": h["avg"]}
-            for s, hist in all_histories.items() for h in hist
-        ])
+
+        # Build CSV with runtime data included
+        comp_rows = []
+        for s, hist in all_histories.items():
+            rt_hist = all_runtime_histories.get(s, [])
+            for i, h in enumerate(hist):
+                row = {
+                    "generation": h["generation"],
+                    "strategy": strategy_names.get(s, s),
+                    "best_fitness": h["best"],
+                    "avg_fitness": h["avg"],
+                }
+                if i < len(rt_hist):
+                    row["gen_time_sec"] = rt_hist[i].get("gen_time", "")
+                    row["best_eval_time_ms"] = rt_hist[i].get("best_eval_time", "")
+                    row["best_exec_time_ms"] = rt_hist[i].get("best_exec_time", "")
+                comp_rows.append(row)
+        comp_df = pd.DataFrame(comp_rows)
         col1.download_button(
             "Download CSV",
             comp_df.to_csv(index=False),
@@ -539,6 +675,7 @@ if start_button:
         best_score = c3.empty()
 
         chart_placeholder = st.empty()
+        runtime_chart_placeholder = st.empty()
 
         log_expander = st.expander("Operation Log", expanded=False)
         details_expander = st.expander("Generation Details", expanded=False)
@@ -546,22 +683,26 @@ if start_button:
         vs = VectorStore()
         vs.clear()
 
-        result, history, candidates, logs = run_single_evolution(
+        result, history, runtime_history, candidates, logs = run_single_evolution(
             config, vs, chart_placeholder, status_placeholder,
             gen_counter, best_score, log_expander, details_expander,
+            runtime_chart_placeholder,
         )
 
         if result:
             st.markdown("---")
 
             # result summary
-            r1, r2, r3 = st.columns(3)
+            total_time = sum(r.get("gen_time", 0) for r in runtime_history) if runtime_history else 0
+            r1, r2, r3, r4 = st.columns(4)
             with r1:
                 render_stat_card("Best Fitness", f"{result.best_overall.fitness:.4f}", "green")
             with r2:
                 render_stat_card("Generations", str(len(history)), "")
             with r3:
                 render_stat_card("Candidates Tested", str(len(candidates)), "orange")
+            with r4:
+                render_stat_card("Total Runtime", f"{total_time:.1f}s", "")
 
             st.markdown("")
             st.markdown("**Best solution found:**")

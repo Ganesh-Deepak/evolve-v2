@@ -4,6 +4,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 from evolve.models import Candidate, RunConfig
@@ -37,10 +38,11 @@ class FitnessEvaluator:
     def evaluate(self, candidate: Candidate) -> Candidate:
         if not is_safe_code(candidate.code):
             candidate.fitness = 0.0
-            candidate.fitness_breakdown = {"error": "Unsafe code detected"}
+            candidate.fitness_breakdown = {"error": "Unsafe code detected", "eval_time_ms": 0.0}
             candidate.mutation_description += " [REJECTED: unsafe code]"
             return candidate
 
+        eval_start = time.perf_counter()
         try:
             if self.config.problem_type == "pacman":
                 fitness, breakdown = self._evaluate_pacman(candidate.code)
@@ -51,6 +53,9 @@ class FitnessEvaluator:
         except Exception as e:
             fitness = 0.0
             breakdown = {"error": str(e)}
+
+        eval_time_ms = (time.perf_counter() - eval_start) * 1000
+        breakdown["eval_time_ms"] = round(eval_time_ms, 2)
 
         candidate.fitness = fitness
         candidate.fitness_breakdown = breakdown
@@ -142,6 +147,8 @@ class EvolvedAgent(Agent):
                       for _ in range(100)]
 
         correct = 0
+        # Time the actual function execution across all test cases
+        exec_start = time.perf_counter()
         for A, B in test_cases:
             try:
                 result = matrix_multiply(A, B)
@@ -150,6 +157,7 @@ class EvolvedAgent(Agent):
                     correct += 1
             except Exception:
                 pass
+        exec_time_ms = (time.perf_counter() - exec_start) * 1000
 
         correctness = correct / len(test_cases)
 
@@ -161,6 +169,7 @@ class EvolvedAgent(Agent):
             "correct_count": correct,
             "total_tests": len(test_cases),
             "num_operations": num_ops,
+            "exec_time_ms": round(exec_time_ms, 2),
         }
         return fitness, breakdown
 

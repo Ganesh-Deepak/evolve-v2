@@ -48,6 +48,7 @@ class EvolutionController:
         all_generations = []
 
         for gen in range(1, self.config.num_generations + 1):
+            gen_start = time.time()
             gen_log = [f"\n--- Generation {gen}/{self.config.num_generations} ---"]
 
             candidates = self.mutator.generate(
@@ -77,17 +78,33 @@ class EvolutionController:
             best_candidate = max(candidates, key=lambda c: c.fitness or 0.0)
             best_overall = self.selector.global_best or best_candidate
 
+            gen_elapsed = time.time() - gen_start
+
             fitnesses = [c.fitness or 0.0 for c in candidates]
+            eval_times = [c.fitness_breakdown.get("eval_time_ms", 0) for c in candidates]
+            best_candidate_this_gen = max(candidates, key=lambda c: c.fitness or 0.0)
+            best_eval_time = best_candidate_this_gen.fitness_breakdown.get("eval_time_ms", 0)
+            best_exec_time = best_candidate_this_gen.fitness_breakdown.get("exec_time_ms", 0)
+
             stats = {
                 "avg_fitness": sum(fitnesses) / len(fitnesses) if fitnesses else 0,
                 "max_fitness": max(fitnesses) if fitnesses else 0,
                 "min_fitness": min(fitnesses) if fitnesses else 0,
+                "gen_time_sec": round(gen_elapsed, 2),
+                "avg_eval_time_ms": round(sum(eval_times) / len(eval_times), 2) if eval_times else 0,
+                "best_eval_time_ms": round(best_eval_time, 2),
+                "best_exec_time_ms": round(best_exec_time, 2),
             }
+
+            gen_log.append(f"  Generation time: {gen_elapsed:.2f}s | Best eval: {best_eval_time:.1f}ms")
 
             self.performance_history.append({
                 "gen": gen,
                 "best": stats["max_fitness"],
                 "avg": stats["avg_fitness"],
+                "gen_time_sec": stats["gen_time_sec"],
+                "best_eval_time_ms": stats["best_eval_time_ms"],
+                "best_exec_time_ms": stats["best_exec_time_ms"],
             })
 
             self.log_entries.extend(gen_log)
