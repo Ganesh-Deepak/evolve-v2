@@ -256,7 +256,7 @@ with st.sidebar:
     if problem_type == "pacman":
         st.caption("fitness = w1 * avg_score + w2 * max_score + w3 * survival")
     else:
-        st.caption("fitness = w1 * correctness + w2 * (1/(ops+1))")
+        st.caption("fitness = w1 * correctness + w2 * (1/(ops+1)) + w3 * (1/(exec_ms+1))")
 
     col1, col2, col3 = st.columns(3)
     w1 = col1.number_input("w1", 0.0, 1.0, 0.5, 0.05)
@@ -268,16 +268,19 @@ with st.sidebar:
         st.error(f"Weights must sum to 1.0 (currently {w1+w2+w3:.2f})")
 
     api_key_needed = strategy == "llm_guided" and not api_key
+    pseudocode_key_needed = input_type == "Pseudocode / Description" and not api_key
     if api_key_needed:
         st.warning("API key required for LLM-Guided strategy")
+    if pseudocode_key_needed:
+        st.warning("API key required to convert pseudocode/description into Python code")
 
     st.divider()
     run_comparison = st.checkbox("Run Comparison Experiment",
                                  help="Run all three strategies and compare results")
 
-    start_disabled = not weights_valid or api_key_needed
+    start_disabled = not weights_valid or api_key_needed or pseudocode_key_needed
     start_button = st.button("Start Evolution", type="primary",
-                             disabled=start_disabled, use_container_width=True)
+                             disabled=start_disabled, width="stretch")
 
 
 # ── Helper functions ────────────────────────────────────────────────────────
@@ -382,6 +385,7 @@ def build_runtime_chart(history: list[dict], title: str = "Runtime per Generatio
             marker=dict(size=6),
             yaxis="y2",
         ))
+    runtime_layout = {k: v for k, v in CHART_LAYOUT.items() if k != "yaxis"}
     fig.update_layout(
         title=title,
         xaxis_title="Generation",
@@ -389,7 +393,7 @@ def build_runtime_chart(history: list[dict], title: str = "Runtime per Generatio
         yaxis2=dict(title="Eval Time (ms)", side="right", overlaying="y",
                     gridcolor="rgba(255,255,255,0.03)"),
         height=380,
-        **CHART_LAYOUT,
+        **runtime_layout,
     )
     return fig
 
@@ -444,13 +448,13 @@ def run_single_evolution(config: RunConfig, vector_store: VectorStore,
 
         chart_placeholder.plotly_chart(
             build_fitness_chart(fitness_history),
-            use_container_width=True,
+            width="stretch",
         )
 
         if runtime_chart_placeholder:
             runtime_chart_placeholder.plotly_chart(
                 build_runtime_chart(runtime_history),
-                use_container_width=True,
+                width="stretch",
             )
 
         with log_container:
@@ -469,7 +473,7 @@ def run_single_evolution(config: RunConfig, vector_store: VectorStore,
                     "Description": c.mutation_description[:70],
                     "Selected": "Yes" if c in gen_result.selected else "",
                 })
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
 
         all_candidates.extend(gen_result.candidates)
 
@@ -578,7 +582,7 @@ if start_button:
         st.markdown("---")
         st.markdown("### Results")
         comp_fig = build_comparison_chart(all_histories)
-        st.plotly_chart(comp_fig, use_container_width=True)
+        st.plotly_chart(comp_fig, width="stretch")
 
         # summary cards
         summary_cols = st.columns(len(all_histories))
@@ -610,7 +614,7 @@ if start_button:
             xaxis_title="Generation", yaxis_title="Time (s)",
             height=400, **CHART_LAYOUT,
         )
-        st.plotly_chart(rt_fig, use_container_width=True)
+        st.plotly_chart(rt_fig, width="stretch")
 
         st.markdown("")
         col1, col2 = st.columns(2)
@@ -637,14 +641,14 @@ if start_button:
             comp_df.to_csv(index=False),
             "comparison_results.csv",
             "text/csv",
-            use_container_width=True,
+            width="stretch",
         )
 
         try:
             png_bytes = comp_fig.to_image(format="png", width=1400, height=700)
             col2.download_button("Download Chart", png_bytes,
                                  "comparison_chart.png", "image/png",
-                                 use_container_width=True)
+                                 width="stretch")
         except Exception:
             col2.info("Install kaleido for PNG export: `pip install kaleido`")
 
@@ -725,7 +729,7 @@ if start_button:
                 results_df.to_csv(index=False),
                 "evolution_results.csv",
                 "text/csv",
-                use_container_width=True,
+                width="stretch",
             )
 
             try:
@@ -733,7 +737,7 @@ if start_button:
                 png_bytes = fig.to_image(format="png", width=1400, height=700)
                 col2.download_button("Download Chart", png_bytes,
                                      "fitness_chart.png", "image/png",
-                                     use_container_width=True)
+                                     width="stretch")
             except Exception:
                 col2.info("Install kaleido for PNG export: `pip install kaleido`")
 

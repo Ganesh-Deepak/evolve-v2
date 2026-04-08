@@ -35,6 +35,7 @@ Rules:
 - Output ONLY the complete function body (code inside matrix_multiply)
 - Do NOT include the function signature line
 - Minimize the number of scalar multiplications and additions
+- Minimize execution time (avoid unnecessary loops, redundant computations)
 - The result MUST be mathematically correct for all inputs
 - Standard approach uses 27 multiplications - try to find approaches with fewer
 - You may use temporary variables and clever algebraic rearrangements"""

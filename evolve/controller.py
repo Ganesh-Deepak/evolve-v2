@@ -57,11 +57,17 @@ class EvolutionController:
             gen_log.append(f"  Generated {len(candidates)} candidates via {self.config.mutation_strategy}")
 
             for i, c in enumerate(candidates):
-                cached = self.vector_store.get_cached_fitness(c.code_hash)
+                cached = self.vector_store.get_cached_result(c.code_hash)
                 if cached is not None:
-                    c.fitness = cached
-                    c.fitness_breakdown = {"cached": True}
-                    gen_log.append(f"  Candidate {i+1} ({c.code_hash[:8]}): fitness={c.fitness:.4f} [CACHED]")
+                    c.fitness = cached["fitness"]
+                    c.fitness_breakdown = {
+                        **cached.get("fitness_breakdown", {}),
+                        "cached": True,
+                    }
+                    gen_log.append(
+                        f"  Candidate {i+1} ({c.code_hash[:8]}): fitness={c.fitness:.4f} [CACHED]"
+                        f" | {c.mutation_description}"
+                    )
                 else:
                     self.evaluator.evaluate(c)
                     self.vector_store.add_candidate(c)

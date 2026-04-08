@@ -2,7 +2,10 @@ venv/
 __pycache__/
 *.pyc
 .env
+secret.txt
 data/chromadb*/
+data/test_*/
+data/project_pdf_extracted.txt
 data/generations/
 data/plots/
 *.egg-info/

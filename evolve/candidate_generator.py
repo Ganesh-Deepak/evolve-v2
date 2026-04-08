@@ -61,13 +61,16 @@ class NoEvolutionMutator(BaseMutator):
                     mutation_description=f"Single-shot LLM failed ({e}), code unchanged",
                 )]
 
-        return [Candidate(
-            code=parent.code,
-            generation=generation,
-            parent_hash=parent.code_hash,
-            mutation_type="none",
-            mutation_description="No evolution - baseline (code unchanged)",
-        )]
+        return [
+            Candidate(
+                code=parent.code,
+                generation=generation,
+                parent_hash=parent.code_hash,
+                mutation_type="none",
+                mutation_description="No evolution - baseline (code unchanged)",
+            )
+            for _ in range(config.population_size)
+        ]
 
 
 class RandomMutator(BaseMutator):
@@ -200,7 +203,8 @@ class LLMGuidedMutator(BaseMutator):
             fitness_desc = f"{config.fitness_weights[0]}*avg_score + {config.fitness_weights[1]}*max_score + {config.fitness_weights[2]}*survival"
         else:
             fitness_desc = (f"{config.fitness_weights[0]}*correctness + "
-                           f"{config.fitness_weights[1]}*(1/(num_operations+1))")
+                           f"{config.fitness_weights[1]}*(1/(num_operations+1)) + "
+                           f"{config.fitness_weights[2]}*(1/(exec_time_ms+1))")
 
         candidates = []
         for i in range(config.population_size):

@@ -1,9 +1,7 @@
 import ast
-import os
 import re
 import subprocess
 import sys
-import tempfile
 import time
 from pathlib import Path
 
@@ -33,7 +31,6 @@ class FitnessEvaluator:
     def __init__(self, config: RunConfig):
         self.config = config
         self.w1, self.w2, self.w3 = config.fitness_weights
-        self.pacman_dir = Path(config.initial_code).parent if False else Path("./pacman")
 
     def evaluate(self, candidate: Candidate) -> Candidate:
         if not is_safe_code(candidate.code):
@@ -95,16 +92,19 @@ class EvolvedAgent(Agent):
                     timeout=self.config.timeout_per_candidate * 3,
                     cwd=str(pacman_dir),
                 )
+                if result.returncode != 0:
+                    all_scores.append(0)
+                    continue
                 scores = _parse_pacman_output(result.stdout)
                 all_scores.extend(scores)
                 total_games += len(scores)
             except subprocess.TimeoutExpired:
                 all_scores.append(0)
-            except Exception as e:
+            except Exception:
                 all_scores.append(0)
 
         if not all_scores:
-            return 0.0, {"error": "No games completed"}
+            return -1000.0, {"error": "No games completed"}
 
         avg_score = sum(all_scores) / len(all_scores)
         max_score = max(all_scores)
@@ -163,7 +163,9 @@ class EvolvedAgent(Agent):
 
         num_ops = _count_operations(func_code)
 
-        fitness = self.w1 * correctness + self.w2 * (1.0 / (num_ops + 1))
+        fitness = (self.w1 * correctness
+                   + self.w2 * (1.0 / (num_ops + 1))
+                   + self.w3 * (1.0 / (exec_time_ms + 1)))
         breakdown = {
             "correctness": correctness,
             "correct_count": correct,

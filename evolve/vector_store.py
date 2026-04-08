@@ -6,12 +6,16 @@ from evolve.models import Candidate
 
 
 class VectorStore:
+    _embedding_function = None
+
     def __init__(self, persist_dir: str = "./data/chromadb"):
         os.makedirs(persist_dir, exist_ok=True)
         self.client = chromadb.PersistentClient(path=persist_dir)
-        self.ef = SentenceTransformerEmbeddingFunction(
-            model_name="all-MiniLM-L6-v2"
-        )
+        if VectorStore._embedding_function is None:
+            VectorStore._embedding_function = SentenceTransformerEmbeddingFunction(
+                model_name="all-MiniLM-L6-v2"
+            )
+        self.ef = VectorStore._embedding_function
         self.collection = self.client.get_or_create_collection(
             name="evolve_candidates",
             embedding_function=self.ef,
@@ -19,6 +23,7 @@ class VectorStore:
         )
 
     def add_candidate(self, candidate: Candidate) -> None:
+        metadata = self._build_metadata(candidate)
         existing = self.collection.get(ids=[candidate.code_hash])
         if existing and existing["ids"]:
             old_fitness = (existing["metadatas"] or [{}])[0].get("fitness", 0)
@@ -26,22 +31,14 @@ class VectorStore:
                 self.collection.update(
                     ids=[candidate.code_hash],
                     documents=[candidate.code],
-                    metadatas=[{
-                        "fitness": candidate.fitness or 0.0,
-                        "generation": candidate.generation,
-                        "mutation_type": candidate.mutation_type,
-                    }],
+                    metadatas=[metadata],
                 )
             return
 
         self.collection.add(
             ids=[candidate.code_hash],
             documents=[candidate.code],
-            metadatas=[{
-                "fitness": candidate.fitness or 0.0,
-                "generation": candidate.generation,
-                "mutation_type": candidate.mutation_type,
-            }],
+            metadatas=[metadata],
         )
 
     def get_similar(self, code: str, n: int = 3,
@@ -82,14 +79,30 @@ class VectorStore:
         return False
 
     def get_cached_fitness(self, code_hash: str) -> float | None:
+        cached = self.get_cached_result(code_hash)
+        if cached is not None:
+            return cached["fitness"]
+        return None
+
+    def get_cached_result(self, code_hash: str) -> dict | None:
         results = self.collection.get(ids=[code_hash])
         if results and results["ids"]:
             meta = (results["metadatas"] or [{}])[0]
-            return meta.get("fitness")
+            breakdown = {
+                key: value for key, value in meta.items()
+                if key not in {"fitness", "generation", "mutation_type"}
+            }
+            return {
+                "fitness": meta.get("fitness"),
+                "fitness_breakdown": breakdown,
+            }
         return None
 
     def clear(self) -> None:
-        self.client.delete_collection("evolve_candidates")
+        try:
+            self.client.delete_collection("evolve_candidates")
+        except Exception:
+            pass
         self.collection = self.client.get_or_create_collection(
             name="evolve_candidates",
             embedding_function=self.ef,
@@ -106,6 +119,18 @@ class VectorStore:
                 generation=0,
                 mutation_type="template",
                 mutation_description=f"Template: {name}",
-                fitness=0.0,
+                fitness=0.1,  # Small positive value so templates appear in RAG queries
             )
             self.add_candidate(candidate)
+
+    @staticmethod
+    def _build_metadata(candidate: Candidate) -> dict:
+        metadata = {
+            "fitness": candidate.fitness or 0.0,
+            "generation": candidate.generation,
+            "mutation_type": candidate.mutation_type,
+        }
+        for key, value in (candidate.fitness_breakdown or {}).items():
+            if isinstance(value, (str, int, float, bool)):
+                metadata[key] = value
+        return metadata

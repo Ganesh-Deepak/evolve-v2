@@ -44,8 +44,35 @@ class LLMClient:
         matches = re.findall(pattern, text, re.DOTALL)
         if matches:
             return matches[-1].strip()
-        lines = text.strip().split("\n")
-        code_lines = [l for l in lines if not l.startswith("#") or "import" in l or "def " in l]
-        if any("def " in l or "return " in l or "if " in l for l in code_lines):
-            return text.strip()
-        return text.strip()
+
+        cleaned = text.strip().strip("`").strip()
+        if not cleaned:
+            return ""
+
+        lines = cleaned.splitlines()
+        start_idx = 0
+        code_markers = (
+            "def ", "return ", "if ", "for ", "while ", "try:", "except", "result",
+            "legal", "closest_food", "best_action", "A[", "B["
+        )
+
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if not stripped:
+                continue
+            if stripped.startswith(("Here", "This", "Explanation", "Improved", "Updated")) and ":" in stripped:
+                continue
+            if stripped.startswith(code_markers) or stripped.endswith(":") or "=" in stripped:
+                start_idx = i
+                break
+
+        candidate_lines = []
+        for line in lines[start_idx:]:
+            stripped = line.strip()
+            if stripped.startswith("```"):
+                continue
+            if stripped and not candidate_lines and stripped.startswith(("Here", "This", "Explanation", "Improved", "Updated")):
+                continue
+            candidate_lines.append(line)
+
+        return "\n".join(candidate_lines).strip()
