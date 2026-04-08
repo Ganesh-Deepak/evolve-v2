@@ -188,6 +188,12 @@ class RandomMutator(BaseMutator):
 
 
 class LLMGuidedMutator(BaseMutator):
+    MATRIX_FOCUSES = [
+        "Produce a fully correct baseline but reduce Python overhead by caching rows, columns, or scalar entries in local variables.",
+        "Favor a mostly unrolled implementation with direct expressions for each output cell when it improves runtime.",
+        "Reduce repeated indexing and temporary allocations while keeping the arithmetic explicit and easy for the evaluator to measure.",
+    ]
+
     def __init__(self, llm_client: LLMClient, vector_store: VectorStore):
         self.llm_client = llm_client
         self.vector_store = vector_store
@@ -224,6 +230,7 @@ class LLMGuidedMutator(BaseMutator):
                 max_gen=config.num_generations,
                 temperature=temperature,
                 fitness_description=fitness_desc,
+                strategy_focus=self._strategy_focus(config.problem_type, i),
             )
 
             try:
@@ -244,6 +251,11 @@ class LLMGuidedMutator(BaseMutator):
             ))
 
         return candidates
+
+    def _strategy_focus(self, problem_type: str, candidate_idx: int) -> str:
+        if problem_type != "matrix":
+            return ""
+        return self.MATRIX_FOCUSES[candidate_idx % len(self.MATRIX_FOCUSES)]
 
 
 def get_mutator(strategy: str, llm_client: LLMClient | None = None,

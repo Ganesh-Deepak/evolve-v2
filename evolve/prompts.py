@@ -38,7 +38,9 @@ Rules:
 - Minimize execution time (avoid unnecessary loops, redundant computations)
 - The result MUST be mathematically correct for all inputs
 - Standard approach uses 27 multiplications - try to find approaches with fewer
-- You may use temporary variables and clever algebraic rearrangements"""
+- You may use temporary variables and clever algebraic rearrangements
+- The evaluator counts actual scalar +, -, and * operations, even when they appear inside comprehensions or sum-like patterns
+- Strong candidates usually cache matrix entries into local variables, reduce repeated indexing, and keep the returned structure simple"""
 
 MUTATION_USER_TEMPLATE = """## Current Code (fitness={fitness:.4f}):
 ```python
@@ -55,6 +57,7 @@ MUTATION_USER_TEMPLATE = """## Current Code (fitness={fitness:.4f}):
 ## Fitness Formula: {fitness_description}
 
 Analyze the current solution and improve it. Focus on areas where performance is weakest.
+{strategy_focus}
 Output the complete improved code."""
 
 
@@ -67,6 +70,7 @@ def build_mutation_prompt(
     max_gen: int,
     temperature: float,
     fitness_description: str,
+    strategy_focus: str = "",
 ) -> str:
     history_str = ""
     for h in performance_history[-5:]:
@@ -90,4 +94,5 @@ def build_mutation_prompt(
         max_gen=max_gen,
         temperature=temperature,
         fitness_description=fitness_description,
+        strategy_focus=f"\n## Candidate Focus:\n{strategy_focus}\n" if strategy_focus else "",
     )

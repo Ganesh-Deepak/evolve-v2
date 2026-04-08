@@ -1,4 +1,3 @@
-import ast
 import re
 import subprocess
 import sys
@@ -161,7 +160,7 @@ class EvolvedAgent(Agent):
 
         correctness = correct / len(test_cases)
 
-        num_ops = _count_operations(func_code)
+        num_ops = _count_matrix_operations(matrix_multiply)
 
         fitness = (self.w1 * correctness
                    + self.w2 * (1.0 / (num_ops + 1))
@@ -214,14 +213,100 @@ def _matrices_equal(a, b, tol=1e-6) -> bool:
         return False
 
 
-def _count_operations(func_code: str) -> int:
+class _OperationCounter:
+    def __init__(self):
+        self.adds = 0
+        self.subs = 0
+        self.mults = 0
+
+    @property
+    def total(self) -> int:
+        return self.adds + self.subs + self.mults
+
+
+class _TrackedScalar:
+    def __init__(self, value: float, counter: _OperationCounter):
+        self.value = value
+        self.counter = counter
+
+    def _coerce(self, other):
+        if isinstance(other, _TrackedScalar):
+            return other.value
+        return other
+
+    def __add__(self, other):
+        self.counter.adds += 1
+        return _TrackedScalar(self.value + self._coerce(other), self.counter)
+
+    def __radd__(self, other):
+        self.counter.adds += 1
+        return _TrackedScalar(self._coerce(other) + self.value, self.counter)
+
+    def __sub__(self, other):
+        self.counter.subs += 1
+        return _TrackedScalar(self.value - self._coerce(other), self.counter)
+
+    def __rsub__(self, other):
+        self.counter.subs += 1
+        return _TrackedScalar(self._coerce(other) - self.value, self.counter)
+
+    def __mul__(self, other):
+        self.counter.mults += 1
+        return _TrackedScalar(self.value * self._coerce(other), self.counter)
+
+    def __rmul__(self, other):
+        self.counter.mults += 1
+        return _TrackedScalar(self._coerce(other) * self.value, self.counter)
+
+    def __neg__(self):
+        return _TrackedScalar(-self.value, self.counter)
+
+    def __pos__(self):
+        return _TrackedScalar(+self.value, self.counter)
+
+    def __abs__(self):
+        return abs(self.value)
+
+    def __float__(self):
+        return float(self.value)
+
+    def __int__(self):
+        return int(self.value)
+
+    def __lt__(self, other):
+        return self.value < self._coerce(other)
+
+    def __le__(self, other):
+        return self.value <= self._coerce(other)
+
+    def __gt__(self, other):
+        return self.value > self._coerce(other)
+
+    def __ge__(self, other):
+        return self.value >= self._coerce(other)
+
+    def __eq__(self, other):
+        return self.value == self._coerce(other)
+
+    def __repr__(self):
+        return repr(self.value)
+
+
+def _count_matrix_operations(matrix_multiply) -> int:
+    counter = _OperationCounter()
+    A = [
+        [_TrackedScalar(1, counter), _TrackedScalar(2, counter), _TrackedScalar(3, counter)],
+        [_TrackedScalar(4, counter), _TrackedScalar(5, counter), _TrackedScalar(6, counter)],
+        [_TrackedScalar(7, counter), _TrackedScalar(8, counter), _TrackedScalar(9, counter)],
+    ]
+    B = [
+        [_TrackedScalar(9, counter), _TrackedScalar(8, counter), _TrackedScalar(7, counter)],
+        [_TrackedScalar(6, counter), _TrackedScalar(5, counter), _TrackedScalar(4, counter)],
+        [_TrackedScalar(3, counter), _TrackedScalar(2, counter), _TrackedScalar(1, counter)],
+    ]
+
     try:
-        tree = ast.parse(func_code)
-        count = 0
-        for node in ast.walk(tree):
-            if isinstance(node, ast.BinOp):
-                if isinstance(node.op, (ast.Mult, ast.Add, ast.Sub)):
-                    count += 1
-        return count
-    except SyntaxError:
+        matrix_multiply(A, B)
+        return counter.total
+    except Exception:
         return 999
