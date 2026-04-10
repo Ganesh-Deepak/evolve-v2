@@ -73,7 +73,7 @@ The survival metric rewards games where Pac-Man achieves a positive score (i.e.,
 
 For matrix multiplication:
 ```
-fitness = w1 * correctness + w2 * (1 / (num_operations + 1))
+fitness = w1 * correctness + w2 * (1 / (num_operations + 1)) + w3 * (1 / (exec_time_ms + 1))
 ```
 
 The weights (w1, w2, w3) are configurable through the UI, so you can experiment with different priorities.
@@ -91,7 +91,12 @@ The weights (w1, w2, w3) are configurable through the UI, so you can experiment 
 
 Most random mutations make the code worse (just like in biology). But once in a while, one accidentally helps, and selection keeps it around.
 
-**LLM-Guided:** Asks GPT-4o-mini to read the current code and write an improved version. Before calling the LLM, the system retrieves similar high-performing code from the vector database and includes it in the prompt (RAG). The temperature starts high (0.8 = more creative) and decreases over generations (0.3 = more focused), mimicking the explore-then-exploit pattern common in optimization.
+**LLM-Guided:** Asks GPT-4o-mini to read the current code and write an improved version. This strategy uses several techniques inspired by AlphaEvolve to drive consistent improvement:
+
+- **Crossover:** ~30% of each generation's candidates are produced by combining the best parts of two different parents, not just mutating one. The LLM receives both parents' code and fitness and is asked to merge their complementary strengths.
+- **Mutation with attempt memory:** The remaining candidates are mutations of a single parent. The prompt includes a history of previously attempted mutations and whether they improved, regressed, or had no effect -- so the LLM avoids repeating failed approaches.
+- **RAG (Retrieval-Augmented Generation):** Before each mutation, the system retrieves similar code from the vector database regardless of minimum fitness, ensuring diverse examples rather than only self-similar high-scoring code.
+- **Slow temperature decay:** Temperature starts at 0.9 and decays to 0.4 over the run (formula: `max(0.4, 0.9 - 0.4 * progress)`), keeping exploration alive much longer than a fast decay schedule would.
 
 ### Vector database (ChromaDB)
 
@@ -130,7 +135,7 @@ The loop:
    d. Store results in ChromaDB
    e. Select top-K with diversity filtering
    f. Yield results to UI
-   g. Check early stopping (if no improvement for N generations, stop)
+   g. Continue until the configured generation count is reached, then finalize the run
 
 ### candidate_generator.py
 
@@ -138,7 +143,7 @@ Three classes that all inherit from `BaseMutator`:
 
 - `NoEvolutionMutator` -- returns the input unchanged
 - `RandomMutator` -- applies 1-2 random operators per candidate
-- `LLMGuidedMutator` -- queries RAG, builds prompt, calls GPT-4o-mini, extracts code
+- `LLMGuidedMutator` -- combines crossover and mutation. For each generation, ~30% of the population is produced by LLM-based crossover (combining two parents), and the rest by single-parent mutation with attempt-history awareness. Queries RAG for diverse examples and calls GPT-4o-mini.
 
 The factory function `get_mutator(strategy)` creates the right one based on the config.
 
@@ -159,20 +164,22 @@ Runs candidate code and computes fitness. Has two evaluation paths.
 1. Wraps code in a `matrix_multiply(A, B)` function
 2. Runs it in a sandboxed namespace (restricted builtins -- no file I/O, no imports)
 3. Tests against 100 random matrix pairs (fixed seed for reproducibility)
-4. Counts arithmetic operations via AST analysis
-5. Computes fitness from correctness and operation count
+4. Counts arithmetic operations by running the function with tracked scalar values
+5. Measures execution time on the fixed test set
+6. Computes fitness from correctness, operation count, and runtime
 
 ### selector.py
 
-Decides which candidates survive each generation.
+Decides which candidates survive each generation using fitness-distance balancing (inspired by MAP-Elites and AlphaEvolve's island model):
 
-1. Sort by fitness (highest first)
-2. Walk through the sorted list, adding each candidate if it's different enough from those already picked (Jaccard similarity < 0.95 on code lines)
-3. Stop after picking top-K
-4. Elitism: if the all-time best candidate isn't in the selected set, force-add it so we never lose our best result
-5. Update the global best if anything in this generation is better
+1. Pick the highest-fitness valid candidate first (guaranteed)
+2. For remaining slots, score each candidate as `0.6 * normalized_fitness + 0.4 * diversity`, where diversity is `1.0 - min_similarity` to already-selected candidates (Jaccard on code lines)
+3. Reject candidates with > 95% similarity to any already-selected candidate
+4. Stop after picking top-K
+5. Elitism: if the all-time best candidate isn't in the selected set, force-add it so we never lose our best result
+6. Update the global best if anything in this generation is better
 
-The diversity check matters a lot. Without it, you can end up with K nearly-identical candidates, and evolution stalls. Forcing diversity keeps the population exploring different approaches.
+The fitness-distance balance is critical. Pure fitness ranking causes convergence within 2-3 generations -- all parents become near-identical and the LLM keeps producing the same mutations. By reserving 40% of the selection score for diversity, we ensure the parent pool contains genuinely different approaches that can be combined via crossover.
 
 ### llm_client.py
 
@@ -196,12 +203,19 @@ Key methods:
 
 ### prompts.py
 
-The prompt templates for GPT-4o-mini. There's a system prompt for each problem type (explaining the available APIs, output rules, what to optimize) and a user prompt template that gets filled in with:
+The prompt templates for GPT-4o-mini. There's a system prompt for each problem type (explaining the available APIs, output rules, what to optimize) and several user prompt templates:
+
+**Mutation prompt** -- filled in with:
 - Current code and fitness score
-- Last 5 generations' performance history
-- RAG examples from the vector DB
+- Last 5 generations' performance history (fitness trends)
+- Previously attempted mutations and their outcomes (improved/regressed/unchanged) from the last 3 generations, so the LLM avoids repeating failed approaches
+- RAG examples from the vector DB (retrieved without a min-fitness filter for diversity)
 - Current generation number and temperature
 - The fitness formula
+
+**Crossover prompt** -- given two parent candidates with their code and fitness scores, asks the LLM to merge their complementary strengths into a single improved child.
+
+**Single-shot prompt** -- used by the no-evolution baseline for a one-off improvement.
 
 ---
 
@@ -213,7 +227,7 @@ Important detail: this is the Python 3 version, so all methods use **snake_case*
 
 The agent file must end in `gents.py` (like `evolvedAgents.py`) because the framework's module loader only looks for that suffix.
 
-Each candidate is tested on two layouts (mediumClassic, smallClassic) with 3 games each. Using multiple layouts reduces the chance of a solution that's accidentally good on one specific map.
+Each candidate is tested on two layouts (mediumClassic, smallClassic) with 5 games each (10 games total). Using multiple layouts and more games per layout reduces stochastic noise in the fitness signal -- Pac-Man scores vary significantly between runs, so a larger sample gives more reliable fitness comparisons.
 
 ---
 
@@ -237,3 +251,24 @@ Since we're generating and running arbitrary code, safety matters. We have four 
 **Why GPT-4o-mini instead of GPT-4?** Cost. A full evolution run with GPT-4 would cost $1-2, while GPT-4o-mini does the same thing for pennies. For code mutations on relatively small functions, the quality difference is negligible.
 
 **Why fixed random seeds for matrix testing?** Reproducibility. Every candidate gets tested against the exact same 100 matrix pairs, so fitness comparisons are fair.
+
+---
+
+## AlphaEvolve-inspired improvements
+
+Several techniques from Google DeepMind's AlphaEvolve (2025) were adapted for this project to improve convergence:
+
+| Technique | AlphaEvolve | Our Implementation |
+|-----------|------------|-------------------|
+| Crossover | Multi-parent diff-based recombination | LLM-based two-parent crossover (~30% of each generation) |
+| Diversity | Island model with separate populations | Fitness-distance balancing in selection (60/40 fitness/diversity) |
+| Attempt memory | Full evolutionary tree with diffs | Last 3 generations' per-candidate mutation outcomes in the prompt |
+| Temperature | Adaptive per-island | Slow decay: 0.9 -> 0.4 over the run |
+| Eval reliability | Large-scale distributed evaluation | 5 games per layout (up from 3) for Pac-Man |
+| RAG retrieval | N/A (uses evolutionary tree) | Removed min-fitness filter to surface diverse examples |
+
+These changes address the main failure modes observed in the original design:
+1. **Convergence stall** -- without diversity pressure, all parents become near-identical within 2-3 generations. Fitness-distance balancing keeps the parent pool diverse.
+2. **Repeated mutations** -- without attempt memory, the LLM proposes similar changes every generation. The attempt history tells it what already failed.
+3. **No recombination** -- mutation alone can only make local improvements. Crossover lets the system combine independently-discovered strategies from different parents.
+4. **Noisy signal** -- 3 Pac-Man games per layout made fitness comparisons unreliable. 5 games reduces variance enough to distinguish genuinely better code.

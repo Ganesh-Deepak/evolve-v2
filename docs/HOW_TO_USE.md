@@ -89,6 +89,7 @@ Click **Start Evolution** and watch it go. You'll see:
 - A table with all candidates and their scores
 
 When it finishes, you can see the best code it found and download the results as CSV or the chart as PNG.
+You can also download a generation-level captured-data CSV with runtime, steps per generation, generation count, and fitness trends.
 
 ---
 
@@ -96,9 +97,9 @@ When it finishes, you can see the best code it found and download the results as
 
 Pac-Man takes longer per generation because it actually runs Pac-Man games for each candidate. A few things to know:
 
-- Each candidate plays 3 games on 2 different maps = 6 games per candidate
-- With population size 5, that's 30 games per generation
-- A generation takes roughly 30-60 seconds
+- Each candidate plays 5 games on 2 different maps = 10 games per candidate
+- With population size 5, that's 50 games per generation
+- A generation takes roughly 45-90 seconds
 - Start with 5 generations and population 3 to test things out before doing longer runs
 
 The default starting code is a greedy agent that chases the nearest food pellet. It usually scores around -200 to -400 (negative because Pac-Man loses 500 points when it dies).
@@ -121,13 +122,15 @@ This is the most interesting strategy, but it needs an OpenAI API key.
 2. Switch strategy to "LLM-Guided Mutation"
 3. Click Start Evolution
 
-Behind the scenes, for each candidate the system:
-- Searches the vector database for similar high-performing code (RAG)
-- Builds a prompt with the current code, fitness history, and those examples
-- Sends it to GPT-4o-mini
-- Extracts the code from the response
+Behind the scenes, for each generation the system:
+- Produces ~30% of candidates via **crossover** (combining two parents' code into a new child)
+- Produces the rest via **mutation** (improving a single parent)
+- For mutations, includes a history of previously attempted mutations and their outcomes, so the LLM avoids repeating failed approaches
+- Searches the vector database for diverse code examples (RAG)
+- Uses **fitness-distance balancing** in selection to keep the parent pool diverse across generations
+- Sends prompts to GPT-4o-mini with a slowly-decaying temperature (0.9 -> 0.4)
 
-The operation log will show entries like "LLM-guided mutation (temp=0.65, 3 RAG examples)."
+The operation log will show entries like "LLM-guided mutation (temp=0.75, 3 RAG examples)" and "LLM crossover of abc123+def456."
 
 ---
 
@@ -153,11 +156,12 @@ Each person should use slightly different parameters to get unique data. For exa
 - Person C: 10 generations, population 8, weights 0.4/0.4/0.2
 
 After running, download:
-- The **CSV** with all candidate data (fitness scores, mutation types, etc.)
+- The **candidate CSV** with per-candidate data (fitness scores, mutation types, etc.)
+- The **captured-data CSV** with runtime performance, steps per generation, generation count, and fitness across iterations
 - The **chart PNG** for your report
 - Take screenshots of the app showing your configuration
 
-The CSV has columns for generation number, candidate hash, fitness score, mutation type, and problem-specific metrics (game scores for Pac-Man, correctness/operations for matrix).
+The candidate CSV has columns for generation number, candidate hash, fitness score, mutation type, complexity estimate, and problem-specific metrics (game scores for Pac-Man, correctness/operations for matrix). The captured-data CSV contains the generation-by-generation runtime and search-step summary needed for analysis.
 
 ---
 

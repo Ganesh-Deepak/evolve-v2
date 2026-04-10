@@ -49,19 +49,21 @@ We tested on two problems:
    - The **Evaluator** runs each candidate (Pac-Man subprocess or sandboxed matrix exec) and computes fitness
    - The **Selector** picks the top-K diverse candidates using Jaccard similarity filtering + elitism
    - Results are yielded to the UI, which updates the fitness chart and operation log in real time
-5. After all generations (or early stopping), the best solution is displayed with download options
+5. After all configured generations, the best solution is displayed with download options
 
 ## Features
 
 - Three mutation strategies: No Evolution (single-shot LLM baseline), Random Mutation, LLM-Guided Mutation
 - Configurable fitness function with 3 adjustable weights (w1, w2, w3) constrained to sum to 1.0
 - Real-time fitness visualization with Plotly charts across generations
+- Runtime and generation-step charts for captured data
 - 3-strategy comparison experiment mode with overlay chart
 - Vector database (ChromaDB) for caching evaluated candidates and RAG retrieval
 - Sentence-transformer embeddings (all-MiniLM-L6-v2) for code similarity and duplicate detection
 - Top-K selection with diversity filtering and elitism (global best is never lost)
 - Safety sandboxing: regex code scanning, restricted exec namespaces, subprocess isolation, timeouts
 - CSV and PNG export for analysis and reporting
+- Captured-data CSV export with runtime performance, steps per generation, generation count, and fitness progression
 - Operation log showing exactly what mutations and selections occurred each generation
 
 ## Prerequisites
@@ -140,12 +142,24 @@ The exported CSV contains one row per candidate per generation:
 | `mutation_description` | str | Human-readable description of what changed |
 | `correctness` | float | (Matrix only) Fraction of test cases passed |
 | `num_operations` | int | (Matrix only) Count of arithmetic operations |
+| `estimated_time_complexity` | str | Static complexity estimate shown in the UI and exports |
+| `generalized_time_complexity` | str | Generalized loop-pattern complexity estimate |
 | `avg_score` | float | (Pac-Man only) Average game score |
 | `max_score` | float | (Pac-Man only) Maximum game score |
 | `win_rate` | float | (Pac-Man only) Fraction of games with positive score |
 
 ### Output (PNG)
 Plotly fitness progression chart showing Best, Average, and Worst fitness per generation.
+
+### Output (Captured Data CSV)
+The app also exports a generation-level CSV containing:
+
+- generation number
+- best/average/worst fitness across iterations
+- runtime in milliseconds and seconds
+- candidates evaluated, cached, and selected per generation
+- search steps per generation
+- best complexity estimate per generation
 
 ## Comparing Strategies
 
@@ -167,9 +181,9 @@ Where survival_metric rewards games where Pac-Man achieves a positive score (win
 
 **Matrix Multiplication (Bonus):**
 ```
-Fitness = w1 * correctness + w2 * (1 / (num_operations + 1))
+Fitness = w1 * correctness + w2 * (1 / (num_operations + 1)) + w3 * (1 / (exec_time_ms + 1))
 ```
-Where correctness = fraction of 100 random test cases producing correct results, and num_operations is counted via AST analysis (multiplications + additions + subtractions).
+Where correctness = fraction of 100 random test cases producing correct results, `num_operations` is measured using tracked scalar arithmetic during execution, and `exec_time_ms` is the observed runtime of the matrix function over the fixed test set.
 
 All weights are configurable via the UI and must satisfy w1 + w2 + w3 = 1.0.
 
@@ -180,7 +194,7 @@ To address execution time concerns, we implemented several acceleration mechanis
 - **Fitness caching via ChromaDB**: Each candidate's code hash is stored with its fitness score. If identical code appears again (same SHA-256 hash), the cached score is returned immediately without re-evaluation.
 - **Template seeding**: Starter code templates are pre-loaded into the vector database at initialization, giving the RAG system useful examples from the start.
 - **Duplicate detection**: During selection, candidates with >95% Jaccard similarity to already-selected code are rejected, preventing wasted evaluations on near-identical solutions.
-- **Early stopping**: If fitness doesn't improve for N consecutive generations (configurable patience), evolution terminates early.
+- **Single-shot baseline**: The `No Evolution` strategy is intentionally limited to one LLM improvement so it can serve as a clean baseline against the iterative strategies.
 
 ## Known Issues and Solutions
 

@@ -21,6 +21,7 @@ class RunConfig:
     timeout_per_candidate: int = 30
     fitness_weights: tuple = (0.5, 0.3, 0.2)
     openai_api_key: str = ""
+    pacman_layouts: tuple[str, ...] = ("mediumClassic", "smallClassic")
 
 
 @dataclass

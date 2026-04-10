@@ -10,6 +10,9 @@ from evolve.prompts import (
     SYSTEM_PROMPT_PACMAN,
     SYSTEM_PROMPT_MATRIX,
     build_mutation_prompt,
+    build_single_shot_prompt,
+    build_crossover_prompt,
+    build_fitness_description,
 )
 
 
@@ -37,9 +40,13 @@ class NoEvolutionMutator(BaseMutator):
             self._has_called = True
             system_prompt = (SYSTEM_PROMPT_PACMAN if config.problem_type == "pacman"
                              else SYSTEM_PROMPT_MATRIX)
-            user_prompt = (
-                f"Improve the following code. Return only the improved code.\n\n"
-                f"```python\n{parent.code}\n```"
+            user_prompt = build_single_shot_prompt(
+                problem_type=config.problem_type,
+                current_code=parent.code,
+                fitness_description=build_fitness_description(
+                    config.problem_type, config.fitness_weights
+                ),
+                fitness_breakdown=parent.fitness_breakdown,
             )
             try:
                 new_code = self.llm_client.generate_code(
@@ -188,6 +195,12 @@ class RandomMutator(BaseMutator):
 
 
 class LLMGuidedMutator(BaseMutator):
+    PACMAN_FOCUSES = [
+        "Prefer successor-based action scoring that balances food progress, ghost safety, and avoiding Stop.",
+        "Reduce reckless moves near active ghosts while still exploiting scared ghosts and capsules when safe.",
+        "Keep the heuristic simple, deterministic, and fast enough to evaluate every action each turn.",
+    ]
+
     MATRIX_FOCUSES = [
         "Produce a fully correct baseline but reduce Python overhead by caching rows, columns, or scalar entries in local variables.",
         "Favor a mostly unrolled implementation with direct expressions for each output cell when it improves runtime.",
@@ -200,28 +213,65 @@ class LLMGuidedMutator(BaseMutator):
 
     def generate(self, parents: list[Candidate], generation: int,
                  config: RunConfig, performance_history: list[dict]) -> list[Candidate]:
-        temperature = max(0.3, 0.8 - 0.5 * (generation / max(config.num_generations, 1)))
+        # Slower temperature decay: stay exploratory longer
+        progress = generation / max(config.num_generations, 1)
+        temperature = max(0.4, 0.9 - 0.4 * progress)
 
         system_prompt = (SYSTEM_PROMPT_PACMAN if config.problem_type == "pacman"
                          else SYSTEM_PROMPT_MATRIX)
-
-        if config.problem_type == "pacman":
-            fitness_desc = f"{config.fitness_weights[0]}*avg_score + {config.fitness_weights[1]}*max_score + {config.fitness_weights[2]}*survival"
-        else:
-            fitness_desc = (f"{config.fitness_weights[0]}*correctness + "
-                           f"{config.fitness_weights[1]}*(1/(num_operations+1)) + "
-                           f"{config.fitness_weights[2]}*(1/(exec_time_ms+1))")
+        fitness_desc = build_fitness_description(
+            config.problem_type, config.fitness_weights
+        )
 
         candidates = []
-        for i in range(config.population_size):
+
+        # Allocate slots: ~30% crossover (min 1 if pop >= 3), rest mutation
+        crossover_count = max(1, config.population_size // 3) if len(parents) >= 2 and config.population_size >= 3 else 0
+        mutation_count = config.population_size - crossover_count
+
+        # --- Crossover candidates ---
+        for i in range(crossover_count):
+            parent_a = parents[0]
+            parent_b = parents[(i + 1) % len(parents)]
+            if parent_a.code_hash == parent_b.code_hash and len(parents) > 1:
+                parent_b = parents[1]
+
+            user_prompt = build_crossover_prompt(
+                code_a=parent_a.code,
+                fitness_a=parent_a.fitness or 0.0,
+                code_b=parent_b.code,
+                fitness_b=parent_b.fitness or 0.0,
+                fitness_description=fitness_desc,
+            )
+
+            try:
+                new_code = self.llm_client.generate_code(
+                    system_prompt, user_prompt, temperature
+                )
+                desc = f"LLM crossover of {parent_a.code_hash[:8]}+{parent_b.code_hash[:8]} (temp={temperature:.2f})"
+            except Exception as e:
+                new_code = parent_a.code
+                desc = f"Crossover failed ({e}), kept parent A"
+
+            candidates.append(Candidate(
+                code=new_code,
+                generation=generation,
+                parent_hash=parent_a.code_hash,
+                mutation_type="llm_crossover",
+                mutation_description=desc,
+            ))
+
+        # --- Mutation candidates ---
+        for i in range(mutation_count):
             parent = parents[i % len(parents)]
 
             rag_examples = self.vector_store.get_similar(
                 parent.code, n=3,
-                min_fitness=(parent.fitness or 0) * 0.5
+                min_fitness=0.0,
             )
 
             user_prompt = build_mutation_prompt(
+                problem_type=config.problem_type,
                 current_code=parent.code,
                 fitness=parent.fitness or 0.0,
                 rag_examples=rag_examples,
@@ -230,6 +280,7 @@ class LLMGuidedMutator(BaseMutator):
                 max_gen=config.num_generations,
                 temperature=temperature,
                 fitness_description=fitness_desc,
+                fitness_breakdown=parent.fitness_breakdown,
                 strategy_focus=self._strategy_focus(config.problem_type, i),
             )
 
@@ -253,8 +304,8 @@ class LLMGuidedMutator(BaseMutator):
         return candidates
 
     def _strategy_focus(self, problem_type: str, candidate_idx: int) -> str:
-        if problem_type != "matrix":
-            return ""
+        if problem_type == "pacman":
+            return self.PACMAN_FOCUSES[candidate_idx % len(self.PACMAN_FOCUSES)]
         return self.MATRIX_FOCUSES[candidate_idx % len(self.MATRIX_FOCUSES)]
 
 
