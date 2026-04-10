@@ -1259,7 +1259,7 @@ if start_button:
         render_section_header("Search Effort per Generation", "&#x1F4CA;")
         step_fig = go.Figure()
         bar_colors_eval = {"none": "#e74c3c", "random": "#f39c12", "llm_guided": "#2ecc71"}
-        bar_colors_cache = {"none": "#c0392b80", "random": "#e67e2280", "llm_guided": "#27ae6080"}
+        bar_colors_cache = {"none": "rgba(192,57,43,0.5)", "random": "rgba(230,126,34,0.5)", "llm_guided": "rgba(39,174,96,0.5)"}
         for strat, rt_hist in all_runtime_histories.items():
             if rt_hist:
                 rt_df = pd.DataFrame(rt_hist)
