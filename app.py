@@ -1066,7 +1066,6 @@ def run_single_evolution(config: RunConfig, vector_store: VectorStore,
             "candidates_evaluated": gen_result.stats.get("candidates_evaluated", 0),
             "candidates_cached": gen_result.stats.get("candidates_cached", 0),
             "candidates_selected": gen_result.stats.get("candidates_selected", 0),
-            "generation_step_count": gen_result.stats.get("generation_step_count", 0),
             "best_estimated_time_complexity": gen_result.stats.get("best_estimated_time_complexity", ""),
             "best_generalized_time_complexity": gen_result.stats.get("best_generalized_time_complexity", ""),
         })
@@ -1257,21 +1256,37 @@ if start_button:
         )
         st.plotly_chart(rt_fig, width="stretch")
 
-        render_section_header("Step Counts per Generation", "&#x1F4CA;")
+        render_section_header("Search Effort per Generation", "&#x1F4CA;")
         step_fig = go.Figure()
+        bar_colors_eval = {"none": "#e74c3c", "random": "#f39c12", "llm_guided": "#2ecc71"}
+        bar_colors_cache = {"none": "#c0392b80", "random": "#e67e2280", "llm_guided": "#27ae6080"}
         for strat, rt_hist in all_runtime_histories.items():
             if rt_hist:
                 rt_df = pd.DataFrame(rt_hist)
+                sname = strategy_names.get(strat, strat)
+                # Cumulative evaluated (running total of fresh evaluations)
+                cumulative_eval = rt_df["candidates_evaluated"].cumsum()
                 step_fig.add_trace(go.Scatter(
-                    x=rt_df["generation"], y=rt_df["generation_step_count"],
-                    mode="lines+markers", name=strategy_names.get(strat, strat),
-                    line=dict(color=rt_colors.get(strat, "#999"), width=2.5),
-                    marker=dict(size=6),
+                    x=rt_df["generation"], y=cumulative_eval,
+                    mode="lines+markers", name=f"{sname} (cumulative evaluated)",
+                    line=dict(color=bar_colors_eval.get(strat, "#999"), width=2.5),
+                    marker=dict(size=7),
                 ))
+                # Per-generation cache hits as bars
+                step_fig.add_trace(go.Bar(
+                    x=rt_df["generation"], y=rt_df["candidates_cached"],
+                    name=f"{sname} (cached)",
+                    marker_color=bar_colors_cache.get(strat, "#99999980"),
+                    opacity=0.6,
+                ))
+        steps_layout = {k: v for k, v in CHART_LAYOUT.items() if k != "yaxis"}
         step_fig.update_layout(
-            title="Search Steps per Generation",
-            xaxis_title="Generation", yaxis_title="Candidates Processed",
-            height=400, **CHART_LAYOUT,
+            title="Cumulative Candidates Evaluated & Cache Hits per Generation",
+            xaxis_title="Generation",
+            yaxis=dict(title="Candidates"),
+            barmode="group",
+            height=420,
+            **steps_layout,
         )
         st.plotly_chart(step_fig, width="stretch")
 
@@ -1294,7 +1309,7 @@ if start_button:
                     row["gen_time_ms"] = rt_hist[i].get("gen_time_ms", "")
                     row["best_eval_time_ms"] = rt_hist[i].get("best_eval_time", "")
                     row["best_exec_time_ms"] = rt_hist[i].get("best_exec_time", "")
-                    row["generation_step_count"] = rt_hist[i].get("generation_step_count", "")
+                    row["candidates_generated"] = rt_hist[i].get("candidates_generated", "")
                     row["candidates_evaluated"] = rt_hist[i].get("candidates_evaluated", "")
                     row["candidates_cached"] = rt_hist[i].get("candidates_cached", "")
                     row["candidates_selected"] = rt_hist[i].get("candidates_selected", "")
