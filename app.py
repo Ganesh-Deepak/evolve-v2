@@ -1291,7 +1291,6 @@ if start_button:
         st.plotly_chart(step_fig, width="stretch")
 
         render_section_header("Export", "&#x1F4E5;", "Download results and charts")
-        col1, col2 = st.columns(2)
 
         # Build CSV with runtime data included
         comp_rows = []
@@ -1317,21 +1316,51 @@ if start_button:
                     row["best_generalized_time_complexity"] = rt_hist[i].get("best_generalized_time_complexity", "")
                 comp_rows.append(row)
         comp_df = pd.DataFrame(comp_rows)
-        col1.download_button(
-            "Download CSV",
-            comp_df.to_csv(index=False),
-            "comparison_results.csv",
-            "text/csv",
-            width="stretch",
-        )
+
+        comp_csv_data = comp_df.to_csv(index=False)
+
+        # Build per-strategy captured data (generation summaries)
+        captured_frames = []
+        for s, hist in all_histories.items():
+            rt_hist = all_runtime_histories.get(s, [])
+            sdf = build_generation_summary_df(hist, rt_hist)
+            if not sdf.empty:
+                sdf.insert(0, "strategy", strategy_names.get(s, s))
+            captured_frames.append(sdf)
+        comp_captured_csv = pd.concat(captured_frames, ignore_index=True).to_csv(index=False) if captured_frames else ""
 
         try:
-            png_bytes = comp_fig.to_image(format="png", width=1400, height=700)
-            col2.download_button("Download Chart", png_bytes,
-                                 "comparison_chart.png", "image/png",
-                                 width="stretch")
+            comp_png_bytes = comp_fig.to_image(format="png", width=1400, height=700)
         except Exception:
-            col2.info("Install kaleido for PNG export: `pip install kaleido`")
+            comp_png_bytes = None
+
+        @st.fragment
+        def comparison_downloads():
+            col1, col2, col3 = st.columns(3)
+            col1.download_button(
+                "Download CSV",
+                comp_csv_data,
+                "comparison_results.csv",
+                "text/csv",
+                width="stretch",
+                key="comp_csv_dl",
+            )
+            col2.download_button(
+                "Download Captured Data CSV",
+                comp_captured_csv,
+                "comparison_captured_data.csv",
+                "text/csv",
+                width="stretch",
+                key="comp_captured_csv_dl",
+            )
+            if comp_png_bytes is not None:
+                col3.download_button("Download Chart", comp_png_bytes,
+                                     "comparison_chart.png", "image/png",
+                                     width="stretch", key="comp_chart_dl")
+            else:
+                col3.info("Install kaleido for PNG export: `pip install kaleido`")
+
+        comparison_downloads()
 
         if all_best_codes:
             render_section_header("Best Solutions per Strategy", "&#x1F4BB;")
@@ -1413,7 +1442,6 @@ if start_button:
                 st.caption(" | ".join(complexity_lines))
 
             render_section_header("Export", "&#x1F4E5;", "Download results and charts")
-            col1, col2, col3 = st.columns(3)
 
             results_df = pd.DataFrame([{
                 "generation": c.generation,
@@ -1426,30 +1454,43 @@ if start_button:
 
             generation_summary_df = build_generation_summary_df(history, runtime_history)
 
-            col1.download_button(
-                "Download Candidate CSV",
-                results_df.to_csv(index=False),
-                "evolution_results.csv",
-                "text/csv",
-                width="stretch",
-            )
-
-            col2.download_button(
-                "Download Captured Data CSV",
-                generation_summary_df.to_csv(index=False),
-                "generation_summary.csv",
-                "text/csv",
-                width="stretch",
-            )
-
+            candidate_csv_data = results_df.to_csv(index=False)
+            summary_csv_data = generation_summary_df.to_csv(index=False)
             try:
                 fig = build_fitness_chart(history)
-                png_bytes = fig.to_image(format="png", width=1400, height=700)
-                col3.download_button("Download Chart", png_bytes,
-                                     "fitness_chart.png", "image/png",
-                                     width="stretch")
+                single_png_bytes = fig.to_image(format="png", width=1400, height=700)
             except Exception:
-                col3.info("Install kaleido for PNG export: `pip install kaleido`")
+                single_png_bytes = None
+
+            @st.fragment
+            def single_run_downloads():
+                col1, col2, col3 = st.columns(3)
+                col1.download_button(
+                    "Download Candidate CSV",
+                    candidate_csv_data,
+                    "evolution_results.csv",
+                    "text/csv",
+                    width="stretch",
+                    key="single_candidate_csv_dl",
+                )
+
+                col2.download_button(
+                    "Download Captured Data CSV",
+                    summary_csv_data,
+                    "generation_summary.csv",
+                    "text/csv",
+                    width="stretch",
+                    key="single_summary_csv_dl",
+                )
+
+                if single_png_bytes is not None:
+                    col3.download_button("Download Chart", single_png_bytes,
+                                         "fitness_chart.png", "image/png",
+                                         width="stretch", key="single_chart_dl")
+                else:
+                    col3.info("Install kaleido for PNG export: `pip install kaleido`")
+
+            single_run_downloads()
 
             render_section_header("Captured Data", "&#x1F4CB;", "Generation-by-generation breakdown")
             st.markdown('<div class="styled-table-wrap"><div class="table-title">Generation Summary</div></div>', unsafe_allow_html=True)
